@@ -24,6 +24,11 @@
  *    ranks on the board's own history, as it did before. Record the decision, then ask SuperPipeline to
  *    hold the card for the winner for the tier's window.
  *
+ * **The candidate set.** With `candidateSet: "all"`, a pass that has cards to place reads every
+ * agent's load from SuperPipeline once (`agentLoad`), and an agent with no bridge row on the board
+ * is a candidate by that load (`directLoad`); a rostered agent's load is its bridge row
+ * (`rosterLoad`). With `roster`, the default, nothing more is read and the roster alone is placed.
+ *
  * **Tiers.** SuperPipeline's hold names one agent, so the relaxation is a sequence of holds the
  * loop makes, a ladder per card: the winner for the reservation window; when that lapses, on the
  * next pass, the best candidate not yet passed over for the runner-up window, and so on up to
@@ -62,7 +67,10 @@ import type {
 import {
   SourceError,
   type Superwitness,
+  directLoad,
+  rosterLoad,
   type Agentpod,
+  type DirectLoadEntry,
   type BoardView,
   type CardView,
   type RosterEntry,
@@ -70,6 +78,7 @@ import {
 } from "../sources/index.ts";
 import { randomBytes } from "node:crypto";
 import {
+  DEFAULT_CANDIDATE_SET,
   DEFAULT_STALL_AFTER_MS,
   DEFAULT_HISTORY,
   DEFAULT_TIERS,
@@ -82,6 +91,7 @@ import {
   suggest,
   type Capability,
   type CandidateFacts,
+  type CandidateSet,
   type Decision,
   type HistorySettings,
   type Ladder,
@@ -195,6 +205,11 @@ export interface LoopDeps {
   tiers?: TierSettings;
   /** How a sweep orders cards across boards; `round-robin` when unset. */
   fairness?: Fairness;
+  /**
+   * Who placement considers; `roster` when unset. With `all`, each pass that has cards to place
+   * reads every agent's load from SuperPipeline once, for the agents with no bridge row.
+   */
+  candidateSet?: CandidateSet;
   /** When the roster suggestions are computed; `DEFAULT_SUGGESTIONS` when unset. */
   suggestions?: SuggestionSettings;
   /** A new suggestion id; `sug_` and random hex when unset. */
@@ -389,6 +404,27 @@ export function createLoop(deps: LoopDeps): Loop {
     return read;
   }
 
+  const candidateSet = deps.candidateSet ?? DEFAULT_CANDIDATE_SET;
+
+  /**
+   * Every agent's load from SuperPipeline, by agent, when the candidate set is `all`; empty
+   * otherwise, or when it cannot be read: then no agent off the roster is a candidate this pass,
+   * and each keeps working by pull.
+   */
+  async function directLoads(): Promise<Map<string, DirectLoadEntry>> {
+    if (candidateSet !== "all") return new Map();
+    try {
+      return new Map(
+        (await superpipeline.agentLoad()).map((e) => [e.agentId, e]),
+      );
+    } catch (error) {
+      log(
+        `loop: agent load unread (${describe(error)}); only the roster is placed`,
+      );
+      return new Map();
+    }
+  }
+
   /** Read a board, settle what it held, queue its ready cards. Throws when the board is unread. */
   async function gather(boardId: string, nowMs: number): Promise<Gathered> {
     const pass: BoardPass = {
@@ -474,6 +510,7 @@ export function createLoop(deps: LoopDeps): Loop {
       new Date(nowMs - NO_SHOW_WINDOW_MS).toISOString(),
     );
     const holds = store.liveHolds(nowIso);
+    const direct = await directLoads();
     const byBoard = new Map(queues.map((q) => [q.boardId, q.g]));
     const order =
       fairness === "round-robin"
@@ -482,7 +519,14 @@ export function createLoop(deps: LoopDeps): Loop {
     const stages = new Map<string, Promise<Map<string, StageRun[]> | null>>();
     for (const { boardId, item: card } of order) {
       const g = byBoard.get(boardId) as Gathered;
-      await placeCard(g, card, { nowMs, nowIso, noShows, holds, stages });
+      await placeCard(g, card, {
+        nowMs,
+        nowIso,
+        noShows,
+        holds,
+        stages,
+        direct,
+      });
     }
     return gathered.map((g) => g.pass);
   }
@@ -496,6 +540,7 @@ export function createLoop(deps: LoopDeps): Loop {
       noShows: Map<string, string[]>;
       holds: Map<string, number>;
       stages: Map<string, Promise<Map<string, StageRun[]> | null>>;
+      direct: Map<string, DirectLoadEntry>;
     },
   ): Promise<void> {
     const { boardId } = g.pass;
@@ -527,6 +572,7 @@ export function createLoop(deps: LoopDeps): Loop {
           ? undefined
           : g.rosterByPrincipal.get(a.principalId);
       const h = g.history.get(a.agentId);
+      const reported = at.direct.get(a.agentId);
       return {
         agentId: a.agentId,
         principalId: a.principalId,
@@ -534,16 +580,14 @@ export function createLoop(deps: LoopDeps): Loop {
         roster:
           entry === undefined
             ? null
-            : {
-                stationId: entry.stationId,
-                enabled: entry.enabled,
-                ready: entry.ready,
-                busy: entry.busy,
-                lastDispatchedAtMs:
-                  entry.lastDispatchedAt === null
-                    ? null
-                    : Date.parse(entry.lastDispatchedAt),
-              },
+            : { stationId: entry.stationId, enabled: entry.enabled },
+        // One shape whichever source reported it: the bridge row, else SuperPipeline's load read.
+        load:
+          entry !== undefined
+            ? rosterLoad(a.agentId, entry)
+            : reported !== undefined
+              ? directLoad(reported, at.nowMs)
+              : null,
         history: {
           settled: h?.settled ?? 0,
           claimed: h?.claimed ?? 0,
@@ -573,6 +617,7 @@ export function createLoop(deps: LoopDeps): Loop {
       ladder,
       tiers,
       history,
+      candidateSet,
     });
     if (
       decision.kind === "none" &&

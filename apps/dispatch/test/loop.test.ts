@@ -19,6 +19,7 @@ import {
   type Agentpod,
   type BoardView,
   type CardView,
+  type DirectLoadEntry,
   type EligibilityView,
   type ReserveAnswer,
   type RosterEntry,
@@ -26,7 +27,7 @@ import {
   type Superwitness,
 } from "../src/sources/index.ts";
 import type { CandidateRecord, TierSettings } from "../src/placement/index.ts";
-import type { Fairness } from "../src/config.ts";
+import type { CandidateSet, Fairness } from "../src/config.ts";
 import { tempStore } from "./helpers.ts";
 
 const BOARD = "brd_00000000000000b1";
@@ -51,6 +52,7 @@ function world(
     fairness?: Fairness;
     suggestions?: SuggestionSettings;
     superwitness?: Superwitness;
+    candidateSet?: CandidateSet;
   } = {},
 ) {
   const t = tempStore();
@@ -114,6 +116,9 @@ function world(
   /** SuperPipeline's agents: id → principal and per-agent reasons. */
   const agents = new Map<string, { principalId: string; reasons: string[] }>();
   const roster = new Map<string, RosterEntry>();
+  /** SuperPipeline's load read: agent → what it reports. */
+  const load = new Map<string, DirectLoadEntry>();
+  let loadFails = false;
   const addAgent = (
     agentId: string,
     over: { reasons?: string[]; roster?: Partial<RosterEntry> | null } = {},
@@ -190,6 +195,11 @@ function world(
     async clearReservation(_b, cardId) {
       calls.push(`clear ${cardId}`);
     },
+    async agentLoad() {
+      calls.push("agent-load");
+      if (loadFails) throw new SourceError("superpipeline", 404, "not found");
+      return [...load.values()];
+    },
   };
   const agentpod: Agentpod = {
     async roster(boardId) {
@@ -209,6 +219,7 @@ function world(
       ...options.tiers,
     },
     fairness: options.fairness ?? "round-robin",
+    ...(options.candidateSet ? { candidateSet: options.candidateSet } : {}),
     ...(options.suggestions ? { suggestions: options.suggestions } : {}),
     ...(options.superwitness ? { superwitness: options.superwitness } : {}),
     now: () => now,
@@ -249,6 +260,7 @@ function world(
     cards,
     holds,
     roster,
+    load,
     addCard,
     addAgent,
     claim,
@@ -258,6 +270,9 @@ function world(
     },
     set reserveAnswer(f: ((cardId: string) => ReserveAnswer | "throw") | null) {
       reserveAnswer = f;
+    },
+    set loadFails(v: boolean) {
+      loadFails = v;
     },
     set rosterFails(v: boolean) {
       rosterFails = v;
@@ -1367,5 +1382,102 @@ describe("stage history from SuperWitness", () => {
     expect(d?.chosenAgent).toBe("agt_a");
     for (const r of (d?.candidates ?? []) as CandidateRecord[])
       expect(r.stageHistory).toBeNull();
+  });
+});
+
+describe("the wider candidate set", () => {
+  const report = (
+    w: ReturnType<typeof world>,
+    agentId: string,
+    over: Partial<DirectLoadEntry> = {},
+  ) =>
+    w.load.set(agentId, {
+      agentId,
+      principalId: `prn_${agentId}`,
+      inFlight: 0,
+      capacity: null,
+      lastHeartbeatAt: new Date(T0 - 120 * S).toISOString(),
+      ...over,
+    });
+
+  test("roster, the default: SuperPipeline's load is never read and an agent with its own token stays out", async () => {
+    const w = world();
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_d", { roster: null });
+    report(w, "agt_d");
+    await w.loop.passBoard(BOARD);
+    expect(w.calls).not.toContain("agent-load");
+    const [d] = w.store.listDecisions({ limit: 10 });
+    expect(d?.noDecisionReason).toBe("one-candidate");
+    expect(verdicts(d?.candidates)).toEqual({
+      agt_a: "ok",
+      agt_d: "not-on-roster",
+    });
+  });
+
+  test("all: the load is read once a pass, and an agent with its own token is held for, recorded as direct", async () => {
+    const w = world({ candidateSet: "all" });
+    w.addCard(CARD);
+    w.addCard("card_00000000000000c2");
+    w.addAgent("agt_a", { roster: { busy: true } });
+    w.addAgent("agt_d", { roster: null });
+    w.addAgent("agt_e", { roster: null });
+    report(w, "agt_d");
+    report(w, "agt_e", { inFlight: 1 });
+    await w.loop.passBoard(BOARD);
+    expect(w.calls.filter((c) => c === "agent-load")).toEqual(["agent-load"]);
+    expect(w.holds.get(CARD)?.agentId).toBe("agt_d");
+    const decision = w.store
+      .listDecisions({ limit: 10 })
+      .find((x) => x.cardId === CARD);
+    expect(verdicts(decision?.candidates)).toEqual({
+      agt_a: "not-idle",
+      agt_d: "ok",
+      agt_e: "not-idle",
+    });
+    const sources = Object.fromEntries(
+      ((decision?.candidates ?? []) as CandidateRecord[]).map((r) => [
+        r.candidate.agentId,
+        r.candidate.source,
+      ]),
+    );
+    expect(sources).toEqual({
+      agt_a: "roster",
+      agt_d: "direct",
+      agt_e: "direct",
+    });
+  });
+
+  test("all: a bridge row speaks for the agent over SuperPipeline's load", async () => {
+    const w = world({ candidateSet: "all" });
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_b", { roster: { busy: true } });
+    report(w, "agt_b", { inFlight: 0 });
+    await w.loop.passBoard(BOARD);
+    const [d] = w.store.listDecisions({ limit: 10 });
+    expect(verdicts(d?.candidates)).toEqual({
+      agt_a: "ok",
+      agt_b: "not-idle",
+    });
+  });
+
+  test("all: when the load cannot be read, only the roster is placed, and the log says so", async () => {
+    const w = world({ candidateSet: "all" });
+    w.loadFails = true;
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_b");
+    w.addAgent("agt_d", { roster: null });
+    report(w, "agt_d");
+    await w.loop.passBoard(BOARD);
+    const [d] = w.store.listDecisions({ limit: 10 });
+    expect(verdicts(d?.candidates)).toEqual({
+      agt_a: "ok",
+      agt_b: "ok",
+      agt_d: "not-on-roster",
+    });
+    expect(w.log.some((l) => l.includes("agent load unread"))).toBe(true);
   });
 });

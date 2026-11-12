@@ -11,10 +11,18 @@
  *
  * The policy (`POLICY`):
  *
- * - **Filters.** On AgentPod's roster for the board (an enabled bridge row); SuperPipeline's own
- *   verdict for this card (capability, grant, the board's concurrency for the agent, and any other
- *   reason it gives); the station ready to claim; **idle**, no work in hand on any board (the
- *   workspace-wide cap, and the reason a reservation is only ever made for an idle agent); and not
+ * - **The candidate set** (`CANDIDATE_SETS`, the `candidates` setting). `roster`, the default: the
+ *   agents on AgentPod's roster for the board (an enabled bridge row). `all`: those, and every
+ *   agent that claims with its own token and has no bridge row on the board, once SuperPipeline
+ *   reports its load and health (`directLoad`). An agent with a disabled bridge row stays out
+ *   either way: a person turned it off on this board. Every candidate record says which it was
+ *   (`source`: `roster` or `direct`).
+ * - **Filters.** In the candidate set (the `roster` filter); SuperPipeline's own verdict for this
+ *   card (capability, grant, the board's concurrency for the agent, and any other reason it gives);
+ *   **healthy** and **idle** by the agent's load in the shared shape (`AgentLoad`, whichever source
+ *   reported it): healthy, and less work in hand than its capacity (for a rostered agent, no work
+ *   in hand on any board: the workspace-wide cap, and the reason a reservation is only ever made
+ *   for an idle agent); and not
  *   **recently a no-show**: an agent whose last `NO_SHOW_LIMIT` reservations within
  *   `NO_SHOW_WINDOW_MS` lapsed unclaimed is shut out until the older of them ages out; not
  *   **holding another card** (one live hold per agent: an agent claims one card at a time, so a
@@ -46,10 +54,19 @@
  *   so a busy board cannot take every free agent before a quiet board's card is looked at.
  */
 
+import {
+  CANDIDATE_SETS,
+  DEFAULT_CANDIDATE_SET,
+  type CandidateSet,
+} from "../config.ts";
+import { isIdle, type AgentLoad, type LoadSource } from "../sources/index.ts";
+
+export { CANDIDATE_SETS, DEFAULT_CANDIDATE_SET, type CandidateSet };
+
 /** The name of the fixed policy below, recorded with every decision. */
 export const POLICY = "idle-stage-success-lru@3";
 
-/** The fewest rostered candidates a card needs before it is placed. */
+/** The fewest candidates in the set a card needs before it is placed. */
 export const MIN_CANDIDATES = 2;
 
 /** How many lapsed reservations within the window shut an agent out. */
@@ -163,7 +180,10 @@ export function stageHistory(
 
 /** Each filter a candidate passes through, and the reason code it rejects with. */
 export const FILTERS = {
-  /** The agent is on AgentPod's roster for the board. Others keep working by pull. */
+  /**
+   * The agent is in the candidate set: on AgentPod's roster for the board, or (when the set is
+   * `all`) claiming with its own token and reporting its load. Others keep working by pull.
+   */
   roster: "not-on-roster",
   /** The agent has the capability the stage asks for (SuperPipeline's `capability_mismatch`). */
   capability: "capability-missing",
@@ -174,11 +194,11 @@ export const FILTERS = {
    * filter here names (a reason added in a later SuperPipeline release among them).
    */
   claimable: "not-claimable",
-  /** The agent's station is ready to claim, by the bridge's own readiness answer. */
+  /** The agent is healthy by its load (`AgentLoad.healthy`): ready to take a card held for it. */
   health: "unhealthy",
   /** The agent is under its board's concurrency (SuperPipeline's `concurrency_reached`). */
   capacity: "at-capacity",
-  /** The agent has no work in hand anywhere in the workspace: the workspace-wide cap. */
+  /** The agent has less in hand than its capacity anywhere in the workspace (`isIdle`). */
   idle: "not-idle",
   /** The agent holds no other card now: one live hold per agent. */
   held: "holding-another",
@@ -231,6 +251,8 @@ export interface Candidate {
   readonly principalId?: string | null;
   /** The station it claims on, when it is on the roster. */
   readonly stationId?: string | null;
+  /** Where its load came from: a bridge row on the roster, or its own token (`direct`). */
+  readonly source?: LoadSource;
 }
 
 /**
@@ -380,13 +402,12 @@ export interface CandidateFacts {
   readonly roster: {
     readonly stationId: string;
     readonly enabled: boolean;
-    /** The bridge would claim on the station now. */
-    readonly ready: boolean;
-    /** The station has work in hand on some board. */
-    readonly busy: boolean;
-    /** When the station last took work, in ms since the epoch; null when it never has. */
-    readonly lastDispatchedAtMs: number | null;
   } | null;
+  /**
+   * Its load and health in the shared shape: from its bridge row (`rosterLoad`) when it has one,
+   * else from SuperPipeline (`directLoad`) when that reported it; null when nobody did.
+   */
+  readonly load: AgentLoad | null;
   /** What this service remembers of the agent on this board. */
   readonly history: {
     /** Holds for it that were settled: claimed by it, or lapsed unclaimed. */
@@ -416,16 +437,35 @@ export interface PlacementInput {
   readonly tiers?: TierSettings;
   /** How a stage's history weighs; `DEFAULT_HISTORY` when unset. */
   readonly history?: HistorySettings;
+  /** Who is considered; `DEFAULT_CANDIDATE_SET` (`roster`) when unset. */
+  readonly candidateSet?: CandidateSet;
 }
 
-/** Every filter's result for one candidate. An agent off the roster goes through that one only. */
+/**
+ * Is the agent in the candidate set? On the roster (an enabled bridge row, with its load from
+ * it); or, when the set is `all`, with no bridge row on the board and a load SuperPipeline
+ * reported (`direct`). Its load when it is in the set; null when it is outside it.
+ */
+export function inCandidateSet(
+  facts: CandidateFacts,
+  set: CandidateSet,
+): AgentLoad | null {
+  const load = facts.load;
+  if (load === null) return null;
+  if (facts.roster !== null)
+    return facts.roster.enabled && load.source === "roster" ? load : null;
+  return set === "all" && load.source === "direct" ? load : null;
+}
+
+/** Every filter's result for one candidate. An agent outside the set goes through that one only. */
 export function filter(
   facts: CandidateFacts,
   nowMs: number,
   passedOver = false,
+  set: CandidateSet = DEFAULT_CANDIDATE_SET,
 ): readonly FilterResult[] {
-  const roster = facts.roster;
-  if (roster === null || !roster.enabled) return [rejected("roster")];
+  const load = inCandidateSet(facts, set);
+  if (load === null) return [rejected("roster")];
   const named = new Set<FilterName>();
   let unnamed = false;
   for (const reason of facts.pipeline.reasons) {
@@ -443,9 +483,9 @@ export function filter(
     check("capability", !named.has("capability")),
     check("grant", !named.has("grant")),
     check("claimable", !unnamed),
-    check("health", roster.ready),
+    check("health", load.healthy),
     check("capacity", !named.has("capacity")),
-    check("idle", !roster.busy),
+    check("idle", isIdle(load)),
     check("held", facts.holds === 0),
     check("noShow", !recentlyNoShow(facts.history.noShowsAtMs, nowMs)),
     check("passedOver", !passedOver),
@@ -473,14 +513,14 @@ export function scoreTerms(
   stage: StageHistory | null = null,
 ): { stageRecord?: number; successRate: number; sinceLastDispatchS: number } {
   const { settled, claimed } = facts.history;
-  const last = facts.roster?.lastDispatchedAtMs ?? null;
+  const seen = facts.load?.lastSeenAt ?? null;
+  const last = seen === null ? NaN : Date.parse(seen);
   return {
     ...(stage !== null ? { stageRecord: stage.stageRecord } : {}),
     successRate: (claimed + 1) / (settled + 2),
-    sinceLastDispatchS:
-      last === null
-        ? NEVER_DISPATCHED_SECONDS
-        : Math.max(0, Math.floor((nowMs - last) / 1000)),
+    sinceLastDispatchS: Number.isFinite(last)
+      ? Math.max(0, Math.floor((nowMs - last) / 1000))
+      : NEVER_DISPATCHED_SECONDS,
   };
 }
 
@@ -528,9 +568,10 @@ export function place(input: PlacementInput): Decision {
   });
   if (candidates.length === 0) return none("no-candidates", []);
 
+  const set = input.candidateSet ?? DEFAULT_CANDIDATE_SET;
   const filtered = candidates.map((facts) => ({
     facts,
-    filters: filter(facts, input.nowMs, passedOver.has(facts.agentId)),
+    filters: filter(facts, input.nowMs, passedOver.has(facts.agentId), set),
   }));
   const settings = input.history ?? DEFAULT_HISTORY;
   const histories = new Map<string, StageHistory>();
@@ -569,6 +610,7 @@ export function place(input: PlacementInput): Decision {
       agentId: facts.agentId,
       principalId: facts.principalId,
       stationId: facts.roster?.stationId ?? null,
+      source: facts.roster === null ? "direct" : "roster",
     },
     filters,
     score: scores.get(facts.agentId) ?? null,
@@ -622,9 +664,9 @@ const LOAD_FILTERS: ReadonlySet<FilterName> = new Set<FilterName>([
 ]);
 
 /**
- * Did a candidate fail only for its load? `health` counts as load only while the station is busy:
- * a bridge at its concurrency answers not ready, and that passes with the work; a station that is
- * not ready while idle is unhealthy, and is not waited for.
+ * Did a candidate fail only for its load? `health` counts as load only while the agent has no room
+ * (`isIdle` false, by its load in the shared shape): a bridge at its concurrency answers not ready,
+ * and that passes with the work; an agent unhealthy while idle is not waited for.
  */
 function onlyLoad(
   facts: CandidateFacts,
@@ -636,7 +678,7 @@ function onlyLoad(
     failed.every(
       (r) =>
         LOAD_FILTERS.has(r.filter) ||
-        (r.filter === "health" && facts.roster?.busy === true),
+        (r.filter === "health" && facts.load !== null && !isIdle(facts.load)),
     )
   );
 }

@@ -40,6 +40,13 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
   absent or failing leaves the score as before. Settings: `SUPERWITNESS_AUDIENCE`,
   `SUPERDISPATCH_HISTORY_DAYS`, `SUPERDISPATCH_HISTORY_MIN_SAMPLE`,
   `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS`. The policy is now `idle-stage-success-lru@3`.
+- A wider candidate set, off until the operator turns it on: with `SUPERDISPATCH_CANDIDATES=all`,
+  agents that claim with their own token (no bridge row on the board) become candidates once
+  SuperPipeline reports their load and health (`GET /v1/agents/load`), judged by the same filters.
+  The roster and SuperPipeline both give one shape, `{agentId, inFlight, capacity, healthy,
+lastSeenAt, source}`; health and idle (`inFlight < capacity`) are read from it, and every
+  candidate record carries its `source` (`roster` or `direct`). `roster`, the default, places
+  exactly as before.
 - A sweep of every opted-in board every 30 seconds, and a look at a board as soon as the event
   relay delivers one of its events.
 - The operator API: opt a board in or out (`/v1/boards`), and read the decisions

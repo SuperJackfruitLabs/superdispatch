@@ -291,6 +291,9 @@ export function candidateRecords(json: unknown): CandidateRecord[] {
           agentId: c.agentId,
           principalId: typeof c.principalId === "string" ? c.principalId : null,
           stationId: typeof c.stationId === "string" ? c.stationId : null,
+          ...(c.source === "roster" || c.source === "direct"
+            ? { source: c.source }
+            : {}),
         },
         filters,
         score: null,

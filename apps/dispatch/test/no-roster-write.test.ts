@@ -76,6 +76,7 @@ describe("no client can edit a roster", () => {
       }),
     );
     expect(methods).toEqual([
+      "agentLoad",
       "board",
       "clearReservation",
       "eligibility",
