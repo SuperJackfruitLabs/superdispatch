@@ -40,7 +40,7 @@ describe("the store", () => {
     expect(mode?.journal_mode).toBe("wal");
   });
 
-  test("migrations 1 and 2 make the decisions table", () => {
+  test("migrations 1 to 3 make the decisions table", () => {
     const { dir } = fresh();
     const db = new Database(join(dir, DATABASE_FILE), { readonly: true });
     const columns = db
@@ -66,6 +66,8 @@ describe("the store", () => {
       ["reservation_refused", false],
       ["outcome_by", false],
       ["outcome_at", false],
+      ["tier", false],
+      ["tier_step", false],
     ]);
   });
 
@@ -157,6 +159,8 @@ function decision(over: Partial<NewDecision> & { id: string }): NewDecision {
     noDecisionReason: null,
     candidates: [{ candidate: { agentId: "agt_a" } }],
     attemptsBefore: 0,
+    tier: "winner",
+    tierStep: 1,
     createdAt: T(0),
     ...over,
   };
@@ -223,6 +227,73 @@ describe("decisions", () => {
       outcomeAt: T(0),
     });
     expect(store.openDecisions("brd_b")).toEqual([]);
+  });
+
+  test("a card opened to any match is open until settled, though it holds nothing", () => {
+    const { store } = fresh();
+    store.recordDecision(
+      decision({
+        id: "pld_1",
+        chosenAgent: null,
+        noDecisionReason: "any-match",
+        tier: "any-match",
+        tierStep: 4,
+      }),
+    );
+    expect(store.openDecisions("brd_a").map((d) => d.id)).toEqual(["pld_1"]);
+    expect(store.getDecision("pld_1")).toMatchObject({
+      tier: "any-match",
+      tierStep: 4,
+      reservedUntil: null,
+    });
+    // It holds nothing, so it is no agent's live hold.
+    expect(store.liveHolds(T(0))).toEqual(new Map());
+    store.settle("pld_1", "claimed-by-other", "agt_z", T(1));
+    expect(store.openDecisions("brd_a")).toEqual([]);
+  });
+
+  test("a card's ladder: its lapsed, superseded and any-match decisions at that stage and attempt count, newest first", () => {
+    const { store } = fresh();
+    const held = (id: string, at: number, over: Partial<NewDecision> = {}) => {
+      store.recordDecision(decision({ id, createdAt: T(at), ...over }));
+      store.setReservation(id, { reservedUntil: T(at + 1) }, T(at));
+    };
+    held("pld_1", 0);
+    store.settle("pld_1", "expired", null, T(1));
+    held("pld_2", 1, { chosenAgent: "agt_b", tier: "runner-up", tierStep: 2 });
+    store.settle("pld_2", "superseded", null, T(2));
+    // A refused hold, a no-choice and a claim are not steps of the ladder.
+    store.recordDecision(decision({ id: "pld_3", createdAt: T(3) }));
+    store.setReservation("pld_3", { refused: "HTTP_404" }, T(3));
+    store.recordDecision(
+      decision({
+        id: "pld_4",
+        createdAt: T(4),
+        chosenAgent: null,
+        noDecisionReason: "none-eligible",
+      }),
+    );
+    held("pld_5", 5, { chosenAgent: "agt_c" });
+    store.settle("pld_5", "claimed", "agt_c", T(5));
+    store.recordDecision(
+      decision({
+        id: "pld_6",
+        createdAt: T(6),
+        chosenAgent: null,
+        tier: "any-match",
+        tierStep: 3,
+      }),
+    );
+    // Another stage, another attempt count, another card: other ladders.
+    held("pld_7", 7, { stageKey: "review" });
+    store.settle("pld_7", "expired", null, T(8));
+    held("pld_8", 7, { attemptsBefore: 1 });
+    store.settle("pld_8", "expired", null, T(8));
+    held("pld_9", 7, { cardId: "card_b" });
+    store.settle("pld_9", "expired", null, T(8));
+    expect(
+      store.ladderDecisions("brd_a", "card_a", "build", 0).map((d) => d.id),
+    ).toEqual(["pld_6", "pld_2", "pld_1"]);
   });
 
   test("an outcome is settled once", () => {
