@@ -43,8 +43,12 @@ events, for that board) it:
    filter's result and the score that ranked it, the hold and, on a later pass, the outcome. A
    settled decision is a labelled example.
 
+After each sweep it also computes **roster suggestions** from its own decisions: advice for a
+person, never a change (see below).
+
 Not yet: publishing each decision as an event through treaty's relay (it needs a decision event
-in treaty's catalogue first), history from SuperWitness in the score, and roster suggestions.
+in treaty's catalogue first), history from SuperWitness in the score, and publishing roster
+suggestions to chat (read them on the operator API until then).
 
 ### Tiers
 
@@ -66,6 +70,36 @@ person. A winner that claims late, after its hold lapsed but before the next pas
 not a no-show. Each lapse is a no-show for the agent, so an agent that lets two holds lapse
 within 30 minutes, on any cards, is shut out of every tier until the older ages out; on an open
 card it can still claim by pull.
+
+### Roster suggestions
+
+A board where each capability has one agent stalls when that agent does. After each sweep (or at
+most every `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`), SuperDispatch reads its decisions of the last
+`SUPERDISPATCH_SUGGEST_WINDOW_HOURS` on the opted-in boards and flags a lane (a board's stage and
+the capability it asks for) when:
+
+| Rule            | When                                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `one-candidate` | the lane's latest decision found exactly one agent on the board's roster with the capability                              |
+| `unreliable`    | in three or more decisions, every agent on the roster with the capability was `unhealthy` or a `recently-no-show`         |
+| `stalled`       | a card waited at the stage, on one attempt, with nobody eligible (`none-eligible`) for `SUPERDISPATCH_STALL_MINUTES` (30) |
+
+A flagged lane is one suggestion. It is `add-agent-to-board` when the workspace has agents with the
+capability that are not on the board's roster (SuperPipeline's eligibility read judges every agent
+of the workspace, and each decision records whether an agent off the roster has the capability),
+and `lane-single-point` when it has none, so somebody must set up another agent for it. It reads:
+`{ id, kind, boardId, stageKey, capability: { all, any } | null, rostered: [agentId], candidates:
+[{ agentId, principalId, stationId }], reasons: [rule], reason, evidence: [decision id],
+evidenceCount, firstSeenAt, lastSeenAt, resolvedAt, dismissedAt }`.
+
+There is one suggestion per kind, board and stage. A computation that no longer finds it resolves
+it; the operator can dismiss it, and it stays dismissed while it is found again. One that resolved
+and comes back later opens anew.
+
+**It never edits a roster.** A person makes the change, in AgentPod. The computation reads and
+writes this service's own store and nothing else: no client of another product has a roster
+write, a test calls every method of every client and checks each request, and another fails if
+the computation touches a client at all.
 
 ## The rulings it implements
 
@@ -110,22 +144,25 @@ bun apps/dispatch/src/main.ts
 curl http://127.0.0.1:8796/healthz
 ```
 
-| Setting                               | What it is                                                                                |
-| ------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `SUPERPIPELINE_URL`                   | Where SuperPipeline's API answers: the ready cards and the eligibility read for each      |
-| `ORG_PLANE_URL`                       | Where the organization plane (Accounts) answers                                           |
-| `ORG_PLANE_SERVICE_CREDENTIAL`        | This service's credential there, `svc_<20 hex>:<secret>`                                  |
-| `AGENTPOD_URL`                        | Where AgentPod's API answers: the roster, and each agent's load and health                |
-| `AGENTPOD_AUDIENCE`                   | The hub's `ORG_PLANE_AUDIENCE`, when it differs from `AGENTPOD_URL`; that URL when unset  |
-| `TREATY_RELAY_DELIVERY_SECRET`        | The secret the event relay signs its deliveries to this service with                      |
-| `SUPERDISPATCH_OPERATOR_TOKEN_SHA256` | The SHA-256 (64 hex digits) of the operator's bearer token; the token itself is not kept  |
-| `SUPERDISPATCH_DATA_DIR`              | Where the store keeps its database; `/data` when unset; absolute                          |
-| `SUPERDISPATCH_SWEEP_SECONDS`         | Seconds between two sweeps of every opted-in board, 5 to 3600; 30 when unset              |
-| `SUPERDISPATCH_RESERVATION_SECONDS`   | Seconds the winner tier holds a card, 10 to 300; 60 when unset                            |
-| `SUPERDISPATCH_RUNNER_UP_SECONDS`     | Seconds each runner-up hold lasts, 10 to 300; 30 when unset                               |
-| `SUPERDISPATCH_TOP_K`                 | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset              |
-| `SUPERDISPATCH_FAIRNESS`              | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset |
-| `PORT`                                | Where it listens; 8796 when unset                                                         |
+| Setting                               | What it is                                                                                                |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `SUPERPIPELINE_URL`                   | Where SuperPipeline's API answers: the ready cards and the eligibility read for each                      |
+| `ORG_PLANE_URL`                       | Where the organization plane (Accounts) answers                                                           |
+| `ORG_PLANE_SERVICE_CREDENTIAL`        | This service's credential there, `svc_<20 hex>:<secret>`                                                  |
+| `AGENTPOD_URL`                        | Where AgentPod's API answers: the roster, and each agent's load and health                                |
+| `AGENTPOD_AUDIENCE`                   | The hub's `ORG_PLANE_AUDIENCE`, when it differs from `AGENTPOD_URL`; that URL when unset                  |
+| `TREATY_RELAY_DELIVERY_SECRET`        | The secret the event relay signs its deliveries to this service with                                      |
+| `SUPERDISPATCH_OPERATOR_TOKEN_SHA256` | The SHA-256 (64 hex digits) of the operator's bearer token; the token itself is not kept                  |
+| `SUPERDISPATCH_DATA_DIR`              | Where the store keeps its database; `/data` when unset; absolute                                          |
+| `SUPERDISPATCH_SWEEP_SECONDS`         | Seconds between two sweeps of every opted-in board, 5 to 3600; 30 when unset                              |
+| `SUPERDISPATCH_RESERVATION_SECONDS`   | Seconds the winner tier holds a card, 10 to 300; 60 when unset                                            |
+| `SUPERDISPATCH_RUNNER_UP_SECONDS`     | Seconds each runner-up hold lasts, 10 to 300; 30 when unset                                               |
+| `SUPERDISPATCH_TOP_K`                 | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset                              |
+| `SUPERDISPATCH_FAIRNESS`              | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset                 |
+| `SUPERDISPATCH_SUGGEST_EVERY_SECONDS` | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset |
+| `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`  | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                   |
+| `SUPERDISPATCH_STALL_MINUTES`         | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset      |
+| `PORT`                                | Where it listens; 8796 when unset                                                                         |
 
 A missing or malformed setting stops it before it listens, naming the setting, never its value.
 
@@ -154,13 +191,20 @@ curl -X DELETE -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards
 curl           -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards
 curl -H "authorization: Bearer $TOKEN" "http://127.0.0.1:8796/v1/decisions?board=brd_…&card=card_…&limit=20"
 curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/decisions/pld_…
+curl -H "authorization: Bearer $TOKEN" "http://127.0.0.1:8796/v1/suggestions?board=brd_…&state=open"
+curl -X POST -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/suggestions/sug_…/dismiss
 ```
 
 A decision reads: `{ id, boardId, cardId, stageKey, policy, chosen, reason, tier: { name, step }
-| null, candidates: [{ candidate: { agentId, principalId, stationId }, filters: [{ filter, passed,
-reason? }], score: { total, terms: { successRate, sinceLastDispatchS } } | null }], reservation:
+| null, requires: { all, any } | null, candidates: [{ candidate: { agentId, principalId, stationId
+}, filters: [{ filter, passed, reason? }], score: { total, terms: { successRate,
+sinceLastDispatchS } } | null, capable? }], reservation:
 { reservedUntil } | null, reservationRefused, outcome: { status, by, at } | null, createdAt }`.
-`tier` is null on decisions made before tiers.
+`tier` is null on decisions made before tiers, and `requires` (the capability the stage asked
+for) on those made before roster suggestions. `capable` is set only for an agent off the roster.
+
+Suggestions: `GET /v1/suggestions?board=&state=` (`state` is `open`, the default, `dismissed`,
+`resolved` or `all`), `GET /v1/suggestions/:id`, and `POST /v1/suggestions/:id/dismiss`.
 
 ## Nothing requires it
 
@@ -173,9 +217,10 @@ with it or without it.
 
 - `apps/dispatch/src/config.ts`: the settings.
 - `apps/dispatch/src/store/`: SQLite (WAL) and its append-only migrations: the `decisions`
-  table, and the opted-in `boards`.
+  table, the opted-in `boards`, and the roster `suggestions`.
 - `apps/dispatch/src/sources/`: clients of SuperPipeline, AgentPod and Accounts.
-- `apps/dispatch/src/placement/`: filter, score and decide, as pure functions over plain inputs.
+- `apps/dispatch/src/placement/`: filter, score and decide, and the roster suggestions
+  (`suggest.ts`), as pure functions over plain inputs.
 - `apps/dispatch/src/loop/`: one pass over a board, and the sweep that runs it.
 - `apps/dispatch/src/routes/`: the HTTP surface: the health check, the relay's deliveries, the
   operator API.

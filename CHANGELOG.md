@@ -21,6 +21,15 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
 - One live hold per agent (`holding-another`): a second hold for an agent that can claim one card
   at a time could only lapse and count against it as a no-show. Load leaves the score; the policy
   is now `idle-success-lru@2`.
+- Roster suggestions, advice only: after each sweep, the decisions of the last day flag a lane
+  with one agent on the roster for its capability, one whose agents keep being unhealthy or
+  no-shows, or one where a card waited 30 minutes with nobody eligible. Each is
+  `add-agent-to-board` (with the workspace's agents that have the capability and are not on the
+  board) or `lane-single-point` (nobody to add), with the decisions that bear it out. Read them on
+  `GET /v1/suggestions`, dismiss one with `POST /v1/suggestions/:id/dismiss`. SuperDispatch never
+  edits a roster: a person makes the change. Settings: `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`,
+  `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`, `SUPERDISPATCH_STALL_MINUTES`. Each decision now records
+  the capability its stage asked for, and whether each agent off the roster has it.
 - A sweep of every opted-in board every 30 seconds, and a look at a board as soon as the event
   relay delivers one of its events.
 - The operator API: opt a board in or out (`/v1/boards`), and read the decisions
