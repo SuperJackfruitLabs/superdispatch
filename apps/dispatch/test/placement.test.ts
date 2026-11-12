@@ -489,7 +489,7 @@ describe("place: the decision", () => {
     expect(
       chosen(
         decide(
-          agent("agt_a", { roster: { busy: true } }),
+          agent("agt_a", { roster: { ready: false } }),
           agent("agt_b", { reasons: ["grant_denied"] }),
         ),
       ),
@@ -631,7 +631,8 @@ describe("tiers", () => {
       ["agt_a"],
       tiers,
       agent("agt_a"),
-      agent("agt_b", { roster: { busy: true } }),
+      // Unhealthy while idle: not a busy agent the card could wait for.
+      agent("agt_b", { roster: { ready: false } }),
     );
     expect(d).toMatchObject({
       kind: "none",
@@ -644,10 +645,52 @@ describe("tiers", () => {
     const d = decideAt(
       [],
       tiers,
-      agent("agt_a", { roster: { busy: true } }),
+      agent("agt_a", { reasons: ["grant_denied"] }),
       agent("agt_b", { roster: { ready: false } }),
     );
     expect(d).toMatchObject({ reason: "none-eligible", tier: WINNER });
+  });
+
+  test("nobody eligible only because the agents are busy: the card waits, at its tier, unrecorded", () => {
+    // Busy with work in hand, and so not ready: the bridge answers not ready at its concurrency.
+    const busy = { roster: { busy: true, ready: false } };
+    expect(
+      decideAt([], tiers, agent("agt_a", busy), agent("agt_b", busy)),
+    ).toMatchObject({ kind: "none", reason: "waiting-on-load", tier: WINNER });
+    // At its board's concurrency in SuperPipeline.
+    expect(
+      chosen(
+        decideAt(
+          [],
+          tiers,
+          agent("agt_a", {
+            reasons: ["concurrency_reached"],
+          }),
+          agent("agt_b", { roster: { ready: false } }),
+        ),
+      ),
+    ).toBe("waiting-on-load");
+    // In a runner-up step too, for an agent not yet passed over.
+    expect(
+      decideAt(["agt_a"], tiers, agent("agt_a"), agent("agt_b", busy)),
+    ).toMatchObject({
+      reason: "waiting-on-load",
+      tier: { name: "runner-up", step: 2 },
+    });
+    // Not ready while idle is unhealthy, not load: nobody to wait for.
+    expect(
+      chosen(
+        decideAt(
+          [],
+          tiers,
+          agent("agt_a", { roster: { ready: false } }),
+          agent("agt_b", {
+            roster: { busy: true },
+            history: { noShowsAtMs: [NOW - 1, NOW - 2] },
+          }),
+        ),
+      ),
+    ).toBe("none-eligible");
   });
 
   test("nobody eligible only because a free agent holds another card: the card waits, at its tier", () => {
@@ -678,7 +721,7 @@ describe("tiers", () => {
       ["agt_a"],
       tiers,
       agent("agt_a", { holds: 1 }),
-      agent("agt_b", { roster: { busy: true } }),
+      agent("agt_b", { roster: { ready: false } }),
     );
     expect(chosen(spent)).toBe("any-match");
   });
