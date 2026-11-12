@@ -8,9 +8,10 @@ records why. The charter decision that sets its scope is
 
 - **It advises; SuperPipeline holds.** SuperDispatch names a preferred agent and SuperPipeline
   holds a short reservation for it. It never hands a card to an agent, and never claims one.
-- **It reads, and owns no other product's data.** `src/sources` only reads SuperPipeline,
-  AgentPod and Accounts through their public APIs. It never edits a roster: a roster suggestion
-  is advice a person acts on.
+- **It reads, and owns no other product's data.** `src/sources` reads SuperPipeline,
+  AgentPod and Accounts through their public APIs; its one write is the reservation, which
+  SuperPipeline holds and lets lapse. It never edits a roster: a roster suggestion is advice a
+  person acts on.
 - **Nothing requires it.** No change here may make SuperPipeline or AgentPod need this service
   to work. When it is slow or absent, the cost is the reservation window, never the claim.
 - **Every decision is a record**: the card, the chosen agent, every candidate with each filter's
@@ -18,7 +19,7 @@ records why. The charter decision that sets its scope is
 - **Placement is pure.** `src/placement` is functions over plain inputs: no I/O, no clock, no
   randomness. The time it needs comes in its input.
 - **The layers hold.** `apps/dispatch/test/architecture.test.ts`: config < store < sources <
-  placement < routes < main. An import stays in its layer or points down.
+  placement < loop < routes < main. An import stays in its layer or points down.
 - **A setting's value never reaches a log, an error or a response.**
 - **Every guard has a test that fails when the guard is reverted.**
 - **Events are treaty's.** Read relay deliveries with `@superjackfruitlabs/treaty-cloudevents`;
@@ -27,7 +28,8 @@ records why. The charter decision that sets its scope is
 ## Layout
 
 - `apps/dispatch/`: the service. `src/store` is its SQLite store and migrations, `src/sources`
-  the read-only clients, `src/placement` filter, score, decide and record, `src/routes` the HTTP
+  the clients of the other products, `src/placement` filter, score and decide, `src/loop` the
+  pass over a board (read, settle, place, reserve, record) and the sweep, `src/routes` the HTTP
   surface.
 - `deploy/staging/`: the staging deploy, run on the staging host by its forced-command key.
 
