@@ -127,6 +127,29 @@ export const POLICY_MODES = ["off", "on"] as const;
 export type PolicyMode = (typeof POLICY_MODES)[number];
 export const DEFAULT_POLICY_MODE: PolicyMode = "off";
 
+/**
+ * Learned routing (`SUPERDISPATCH_LEARNED`): `off`, the default, reads no model and places by the
+ * formula alone; `shadow` also records, for each decision, what the latest model would have
+ * chosen, and still holds the formula's choice; `on` holds the model's choice only once the model
+ * has passed the gate (enough training rows, enough shadow decisions, a lift over the formula of
+ * at least the margin), and otherwise places by the formula as in shadow, and logs why.
+ */
+export const LEARNED_MODES = ["off", "shadow", "on"] as const;
+export type LearnedMode = (typeof LEARNED_MODES)[number];
+export const DEFAULT_LEARNED_MODE: LearnedMode = "off";
+
+/** The fewest training rows a model needs to place (`SUPERDISPATCH_LEARNED_MIN_ROWS`). */
+export const DEFAULT_LEARNED_MIN_ROWS = 500;
+
+/** The fewest settled shadow decisions a model needs to place (`SUPERDISPATCH_LEARNED_MIN_SHADOW`). */
+export const DEFAULT_LEARNED_MIN_SHADOW = 100;
+
+/**
+ * How many points a model's claim rate in shadow must beat the formula's by to place
+ * (`SUPERDISPATCH_LEARNED_MARGIN_PCT`).
+ */
+export const DEFAULT_LEARNED_MARGIN_PCT = 5;
+
 export interface Config {
   port: number;
   /** SuperPipeline's API URL, and the audience of every assertion asked for it. */
@@ -180,6 +203,12 @@ export interface Config {
   suggestWindowHours: number;
   /** Minutes a card waits with nobody eligible before its lane is suggested for. */
   stallMinutes: number;
+  /** Learned routing: off, shadow, or on behind the gate. */
+  learned: LearnedMode;
+  /** The gate a model passes before it places, in `on`. */
+  learnedMinRows: number;
+  learnedMinShadow: number;
+  learnedMarginPct: number;
   /** The directory the store keeps its database in; absolute. */
   dataDir: string;
   /** The SHA-256 of the operator's bearer token, 64 lowercase hex digits. */
@@ -396,6 +425,38 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     problems,
   );
 
+  const learned = oneOf(
+    env,
+    "SUPERDISPATCH_LEARNED",
+    LEARNED_MODES,
+    DEFAULT_LEARNED_MODE,
+    problems,
+  );
+  const learnedMinRows = wholeNumber(
+    env,
+    "SUPERDISPATCH_LEARNED_MIN_ROWS",
+    DEFAULT_LEARNED_MIN_ROWS,
+    1,
+    10_000_000,
+    problems,
+  );
+  const learnedMinShadow = wholeNumber(
+    env,
+    "SUPERDISPATCH_LEARNED_MIN_SHADOW",
+    DEFAULT_LEARNED_MIN_SHADOW,
+    1,
+    1_000_000,
+    problems,
+  );
+  const learnedMarginPct = wholeNumber(
+    env,
+    "SUPERDISPATCH_LEARNED_MARGIN_PCT",
+    DEFAULT_LEARNED_MARGIN_PCT,
+    0,
+    100,
+    problems,
+  );
+
   if (problems.length > 0) throw new ConfigError(problems);
   return {
     port,
@@ -427,6 +488,10 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     suggestEverySeconds,
     suggestWindowHours,
     stallMinutes,
+    learned,
+    learnedMinRows,
+    learnedMinShadow,
+    learnedMarginPct,
     dataDir,
     operatorTokenSha256,
   };
