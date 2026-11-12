@@ -3,7 +3,7 @@
  *
  * - `GET /healthz`: the health check;
  * - `POST /v1/relay/events`: the event relay's signed deliveries (`relay.ts`);
- * - `/v1/boards…` and `/v1/decisions…`: the operator's API (`operator.ts`).
+ * - `/v1/boards…`, `/v1/decisions…` and `/v1/suggestions…`: the operator's API (`operator.ts`).
  *
  * Anything else is 404.
  */
@@ -13,6 +13,7 @@ import { notFound } from "./body.ts";
 import {
   BOARDS_PATH,
   DECISIONS_PATH,
+  SUGGESTIONS_PATH,
   createOperatorHandler,
 } from "./operator.ts";
 import { RELAY_EVENTS_PATH, createRelayHandler } from "./relay.ts";
@@ -58,7 +59,7 @@ export function createHandler(deps: HandlerDeps) {
     if (pathname === RELAY_EVENTS_PATH) {
       return request.method === "POST" ? relay(request) : notFound();
     }
-    for (const prefix of [BOARDS_PATH, DECISIONS_PATH]) {
+    for (const prefix of [BOARDS_PATH, DECISIONS_PATH, SUGGESTIONS_PATH]) {
       if (pathname === prefix || pathname.startsWith(`${prefix}/`))
         return operator(request);
     }

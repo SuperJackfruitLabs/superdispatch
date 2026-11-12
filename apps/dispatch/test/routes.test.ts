@@ -157,6 +157,7 @@ describe("the operator API", () => {
         chosen: "agt_a",
         reason: null,
         tier: { name: "winner", step: 1 },
+        requires: null,
         candidates: [],
         reservation: { reservedUntil: "2026-11-12T11:01:00.000Z" },
         reservationRefused: null,
@@ -225,6 +226,116 @@ const EVENT = {
   ),
   datacontenttype: "application/json",
 };
+
+describe("the suggestions API", () => {
+  const SUG = "sug_000000000000000000000001";
+  function seeded() {
+    const t = setup();
+    let n = 0;
+    t.store.syncSuggestions(
+      [
+        {
+          kind: "add-agent-to-board",
+          boardId: BOARD,
+          stageKey: "build",
+          body: {
+            capability: { all: ["code"], any: [] },
+            rostered: ["agt_a"],
+            candidates: [
+              { agentId: "agt_x", principalId: "prn_x", stationId: null },
+            ],
+            reasons: ["one-candidate"],
+            reason: "Only agt_a …",
+          },
+          evidence: ["pld_000000000000000000000001"],
+          evidenceCount: 1,
+        },
+      ],
+      "2026-11-12T11:00:00.000Z",
+      () => `sug_${String(++n).padStart(24, "0")}`,
+    );
+    return t;
+  }
+
+  test("lists the open suggestions, reads one, dismisses it, and lists it as dismissed", async () => {
+    const { handle } = seeded();
+    const listed = await (await handle(op("/v1/suggestions"))).json();
+    expect(listed).toEqual({
+      suggestions: [
+        {
+          id: SUG,
+          kind: "add-agent-to-board",
+          boardId: BOARD,
+          stageKey: "build",
+          capability: { all: ["code"], any: [] },
+          rostered: ["agt_a"],
+          candidates: [
+            { agentId: "agt_x", principalId: "prn_x", stationId: null },
+          ],
+          reasons: ["one-candidate"],
+          reason: "Only agt_a …",
+          evidence: ["pld_000000000000000000000001"],
+          evidenceCount: 1,
+          firstSeenAt: "2026-11-12T11:00:00.000Z",
+          lastSeenAt: "2026-11-12T11:00:00.000Z",
+          resolvedAt: null,
+          dismissedAt: null,
+        },
+      ],
+    });
+    expect(
+      (await (await handle(op(`/v1/suggestions/${SUG}`))).json()).suggestion.id,
+    ).toBe(SUG);
+    const r = await handle(op(`/v1/suggestions/${SUG}/dismiss`, "POST"));
+    expect(r.status).toBe(200);
+    expect((await r.json()).suggestion.dismissedAt).toBe(
+      new Date(NOW).toISOString(),
+    );
+    expect(await (await handle(op("/v1/suggestions"))).json()).toEqual({
+      suggestions: [],
+    });
+    expect(
+      (await (await handle(op("/v1/suggestions?state=dismissed"))).json())
+        .suggestions,
+    ).toHaveLength(1);
+    expect(
+      (
+        await (
+          await handle(op(`/v1/suggestions?board=${BOARD}&state=all`))
+        ).json()
+      ).suggestions,
+    ).toHaveLength(1);
+  });
+
+  test("refuses a missing token, a bad query, an unknown id and another method", async () => {
+    const { handle } = seeded();
+    expect((await handle(op("/v1/suggestions", "GET", ""))).status).toBe(401);
+    expect(
+      (await handle(op(`/v1/suggestions/${SUG}/dismiss`, "POST", "wrong")))
+        .status,
+    ).toBe(401);
+    expect((await handle(op("/v1/suggestions?state=gone"))).status).toBe(400);
+    expect((await handle(op("/v1/suggestions?board=nope"))).status).toBe(400);
+    expect(
+      (
+        await handle(
+          op("/v1/suggestions/sug_0000000000000000000000ff/dismiss", "POST"),
+        )
+      ).status,
+    ).toBe(404);
+    expect((await handle(op("/v1/suggestions/nope"))).status).toBe(404);
+    expect(
+      (await handle(op(`/v1/suggestions/${SUG}/apply`, "POST"))).status,
+    ).toBe(404);
+    expect((await handle(op(`/v1/suggestions/${SUG}/dismiss`))).status).toBe(
+      405,
+    );
+    expect((await handle(op("/v1/suggestions", "POST"))).status).toBe(405);
+    expect((await handle(op(`/v1/suggestions/${SUG}`, "DELETE"))).status).toBe(
+      405,
+    );
+  });
+});
 
 describe("the relay route", () => {
   test("an event for an opted-in board is accepted and nudges it", async () => {

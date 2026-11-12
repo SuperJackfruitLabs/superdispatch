@@ -16,17 +16,35 @@
  * - `GET /v1/decisions?board=&card=&before=&limit=`: optionally one board, one card (with its
  *   board), those made before a time; `limit` 1 to 200, 50 when unset.
  * - `GET /v1/decisions/:id`: one decision.
+ *
+ * Roster suggestions (advice for a person: SuperDispatch never edits a roster, and nothing here
+ * writes to another product):
+ *
+ * - `GET /v1/suggestions?board=&state=`: newest seen first, optionally one board; `state` is
+ *   `open` (the default: not resolved, not dismissed), `dismissed`, `resolved` or `all`.
+ * - `GET /v1/suggestions/:id`: one suggestion.
+ * - `POST /v1/suggestions/:id/dismiss`: dismiss it. It stays dismissed while it is found again; if
+ *   it resolves and comes back later, it opens anew.
  */
 import { tokenMatchesSha256 } from "../config.ts";
-import type { Board, DecisionRow, Store } from "../store/index.ts";
+import {
+  SUGGESTION_STATES,
+  type Board,
+  type DecisionRow,
+  type Store,
+  type SuggestionRow,
+  type SuggestionState,
+} from "../store/index.ts";
 import { BOARD_ID, CARD_ID, notAllowed, notFound } from "./body.ts";
 
 export const BOARDS_PATH = "/v1/boards";
 export const DECISIONS_PATH = "/v1/decisions";
+export const SUGGESTIONS_PATH = "/v1/suggestions";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const DECISION_ID = /^pld_[0-9a-f]{24}$/;
+const SUGGESTION_ID = /^sug_[0-9a-f]{24}$/;
 
 export interface OperatorDeps {
   /** The SHA-256 of the operator's token, 64 hex digits. */
@@ -39,6 +57,9 @@ export interface OperatorDeps {
     | "listBoards"
     | "listDecisions"
     | "getDecision"
+    | "listSuggestions"
+    | "getSuggestion"
+    | "dismissSuggestion"
   >;
   /** Told of a board just opted in, so it is looked at without waiting for the sweep. */
   onBoardEnabled?: (boardId: string) => void;
@@ -66,6 +87,12 @@ export function createOperatorHandler(deps: OperatorDeps) {
       url.pathname.startsWith(`${DECISIONS_PATH}/`)
     ) {
       return request.method === "GET" ? decisions(url) : notAllowed();
+    }
+    if (
+      url.pathname === SUGGESTIONS_PATH ||
+      url.pathname.startsWith(`${SUGGESTIONS_PATH}/`)
+    ) {
+      return suggestions(request, url);
     }
     return boards(request, url.pathname);
   };
@@ -140,6 +167,43 @@ export function createOperatorHandler(deps: OperatorDeps) {
     });
     return Response.json({ decisions: rows.map(decisionView) });
   }
+
+  function suggestions(request: Request, url: URL): Response {
+    const rest = url.pathname.slice(SUGGESTIONS_PATH.length + 1);
+    if (rest === "") {
+      if (request.method !== "GET") return notAllowed();
+      const board = url.searchParams.get("board") ?? undefined;
+      const state = url.searchParams.get("state") ?? "open";
+      if (board !== undefined && !BOARD_ID.test(board))
+        return bad("board is not a board id");
+      if (!(SUGGESTION_STATES as readonly string[]).includes(state))
+        return bad(`state is not one of ${SUGGESTION_STATES.join(", ")}`);
+      const rows = deps.store.listSuggestions({
+        ...(board !== undefined ? { boardId: board } : {}),
+        state: state as SuggestionState,
+      });
+      return Response.json({ suggestions: rows.map(suggestionView) });
+    }
+    const [id, verb, ...more] = rest.split("/");
+    if (id === undefined || !SUGGESTION_ID.test(id) || more.length > 0)
+      return notFound();
+    if (verb === undefined) {
+      if (request.method !== "GET") return notAllowed();
+      const found = deps.store.getSuggestion(id);
+      return found
+        ? Response.json({ suggestion: suggestionView(found) })
+        : notFound();
+    }
+    if (verb !== "dismiss") return notFound();
+    if (request.method !== "POST") return notAllowed();
+    const dismissed = deps.store.dismissSuggestion(
+      id,
+      new Date(deps.now()).toISOString(),
+    );
+    if (dismissed === null) return notFound();
+    log(`suggestions: ${id} dismissed`);
+    return Response.json({ suggestion: suggestionView(dismissed) });
+  }
 }
 
 const bad = (error: string) => Response.json({ error }, { status: 400 });
@@ -164,6 +228,7 @@ export function decisionView(d: DecisionRow) {
     chosen: d.chosenAgent,
     reason: d.noDecisionReason,
     tier: d.tier !== null ? { name: d.tier, step: d.tierStep } : null,
+    requires: d.requires ?? null,
     candidates: d.candidates,
     reservation:
       d.reservedUntil !== null ? { reservedUntil: d.reservedUntil } : null,
@@ -173,5 +238,30 @@ export function decisionView(d: DecisionRow) {
         ? { status: d.outcome, by: d.outcomeBy, at: d.outcomeAt }
         : null,
     createdAt: d.createdAt,
+  };
+}
+
+/** A suggestion as the operator reads it: advice, with the decisions that bear it out. */
+export function suggestionView(s: SuggestionRow) {
+  const body =
+    typeof s.body === "object" && s.body !== null
+      ? (s.body as Record<string, unknown>)
+      : {};
+  return {
+    id: s.id,
+    kind: s.kind,
+    boardId: s.boardId,
+    stageKey: s.stageKey,
+    capability: body.capability ?? null,
+    rostered: body.rostered ?? [],
+    candidates: body.candidates ?? [],
+    reasons: body.reasons ?? [],
+    reason: body.reason ?? null,
+    evidence: s.evidence,
+    evidenceCount: s.evidenceCount,
+    firstSeenAt: s.firstSeenAt,
+    lastSeenAt: s.lastSeenAt,
+    resolvedAt: s.resolvedAt,
+    dismissedAt: s.dismissedAt,
   };
 }
