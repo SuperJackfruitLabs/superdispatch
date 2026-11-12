@@ -63,6 +63,7 @@ const loop = createLoop({
     topK: config.topK,
   },
   fairness: config.fairness,
+  candidateSet: config.candidates,
   suggestions: {
     everyMs: config.suggestEverySeconds * 1000,
     windowMs: config.suggestWindowHours * 3600 * 1000,

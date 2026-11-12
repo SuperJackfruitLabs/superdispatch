@@ -14,6 +14,7 @@ import {
   type FilterName,
   type LaneDecision,
 } from "../src/placement/index.ts";
+import { rosterLoad } from "../src/sources/index.ts";
 
 const ALL = Object.keys(FILTERS) as FilterName[];
 const MIN = 60_000;
@@ -311,14 +312,14 @@ describe("place records whether an agent off the roster has the capability", () 
     agentId,
     principalId: `prn_${agentId}`,
     pipeline: { eligible: reasons.length === 0, reasons },
-    roster: rostered
-      ? {
-          stationId: `stn_${agentId}`,
+    roster: rostered ? { stationId: `stn_${agentId}`, enabled: true } : null,
+    load: rostered
+      ? rosterLoad(agentId, {
           enabled: true,
           ready: true,
           busy: false,
-          lastDispatchedAtMs: null,
-        }
+          lastDispatchedAt: null,
+        })
       : null,
     history: { settled: 0, claimed: 0, noShowsAtMs: [] },
     holds: 0,

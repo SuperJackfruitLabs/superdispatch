@@ -26,6 +26,7 @@ import {
   stageHistory,
   type StageRun,
 } from "../src/placement/index.ts";
+import { rosterLoad } from "../src/sources/index.ts";
 
 const CARD: CardRef = { boardId: "brd_a", cardId: "crd_a", stageKey: "build" };
 const ALL = Object.keys(FILTERS) as FilterName[];
@@ -247,34 +248,55 @@ describe("a decision's invariants", () => {
 const NOW = Date.parse("2026-11-12T12:00:00.000Z");
 const MIN = 60_000;
 
+/** A bridge row on the roster, as a row of the table states it. */
+interface RosterOver {
+  stationId: string;
+  enabled: boolean;
+  ready: boolean;
+  busy: boolean;
+  lastDispatchedAtMs: number | null;
+}
+
 /** An agent with every fact in its favour, unless a row says otherwise. */
 function agent(
   agentId: string,
   over: {
     eligible?: boolean;
     reasons?: string[];
-    roster?: Partial<NonNullable<CandidateFacts["roster"]>> | null;
+    roster?: Partial<RosterOver> | null;
     history?: Partial<CandidateFacts["history"]>;
     holds?: number;
     stageRuns?: StageRun[];
   } = {},
 ): CandidateFacts {
   const reasons = over.reasons ?? [];
+  const row: RosterOver | null =
+    over.roster === null
+      ? null
+      : {
+          stationId: `stn_${agentId}`,
+          enabled: true,
+          ready: true,
+          busy: false,
+          lastDispatchedAtMs: NOW - 10 * MIN,
+          ...over.roster,
+        };
   return {
     agentId,
     principalId: `prn_${agentId}`,
     pipeline: { eligible: over.eligible ?? reasons.length === 0, reasons },
     roster:
-      over.roster === null
+      row === null ? null : { stationId: row.stationId, enabled: row.enabled },
+    load:
+      row === null
         ? null
-        : {
-            stationId: `stn_${agentId}`,
-            enabled: true,
-            ready: true,
-            busy: false,
-            lastDispatchedAtMs: NOW - 10 * MIN,
-            ...over.roster,
-          },
+        : rosterLoad(agentId, {
+            ...row,
+            lastDispatchedAt:
+              row.lastDispatchedAtMs === null
+                ? null
+                : new Date(row.lastDispatchedAtMs).toISOString(),
+          }),
     history: { settled: 0, claimed: 0, noShowsAtMs: [], ...over.history },
     holds: over.holds ?? 0,
     ...(over.stageRuns !== undefined ? { stageRuns: over.stageRuns } : {}),
@@ -517,11 +539,21 @@ describe("place: the decision", () => {
     ]);
   });
 
-  test("the record carries each candidate's principal and station", () => {
+  test("the record carries each candidate's principal, station and source", () => {
     const d = decide(agent("agt_a"), agent("agt_x", { roster: null }));
     expect(d.candidates.map((r) => r.candidate)).toEqual([
-      { agentId: "agt_a", principalId: "prn_agt_a", stationId: "stn_agt_a" },
-      { agentId: "agt_x", principalId: "prn_agt_x", stationId: null },
+      {
+        agentId: "agt_a",
+        principalId: "prn_agt_a",
+        stationId: "stn_agt_a",
+        source: "roster",
+      },
+      {
+        agentId: "agt_x",
+        principalId: "prn_agt_x",
+        stationId: null,
+        source: "direct",
+      },
     ]);
   });
 
