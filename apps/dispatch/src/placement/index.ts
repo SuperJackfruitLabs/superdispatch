@@ -22,11 +22,14 @@
  *   this card (its hold on this card already lapsed in the card's current ladder of tiers). An
  *   agent off the roster is recorded with its roster rejection only: it is outside the candidate
  *   set and keeps working by pull.
- * - **Score**, in order, each term breaking the previous one's ties: the agent's **success rate on
- *   this board** (holds it claimed, of holds that were settled, smoothed: `(claimed + 1) /
- *   (settled + 2)`), then **least recently used** (longest since its station last took work;
- *   never first). The agent id breaks a tie that is left, so the same inputs always give the same
- *   choice.
+ * - **Score**, in order, each term breaking the previous one's ties: the agent's **record at this
+ *   stage** (`stageRecord`, from SuperWitness: how its finished runs at this board stage turned
+ *   out and how they were judged; see `stageHistory`), then its **success rate on this board**
+ *   (holds it claimed, of holds that were settled, smoothed: `(claimed + 1) / (settled + 2)`),
+ *   then **least recently used** (longest since its station last took work; never first). The
+ *   agent id breaks a tie that is left, so the same inputs always give the same choice. When the
+ *   stage's history could not be read for every eligible candidate, the record term is left out
+ *   for all of them and the order is the board's own, as before SuperWitness was read.
  * - **Tiers.** A card's holds form a ladder, one step per hold (SuperPipeline holds a card for one
  *   agent at a time). Step 1 is the **winner** tier, held for `winnerSeconds`; steps 2 to `topK`
  *   are the **runner-up** tier, each held for the best candidate not yet passed over, for
@@ -44,7 +47,7 @@
  */
 
 /** The name of the fixed policy below, recorded with every decision. */
-export const POLICY = "idle-success-lru@2";
+export const POLICY = "idle-stage-success-lru@3";
 
 /** The fewest rostered candidates a card needs before it is placed. */
 export const MIN_CANDIDATES = 2;
@@ -61,6 +64,102 @@ export const NO_SHOW_WINDOW_MS = 30 * 60 * 1000;
  * because a score is.
  */
 export const NEVER_DISPATCHED_SECONDS = 1_000_000_000;
+
+/**
+ * How a stage's history weighs: each run counts for less the older it is, halving every
+ * `halfLifeMs`, and a rate is read from at least `minSample` runs, or is the neutral one half.
+ */
+export interface HistorySettings {
+  readonly halfLifeMs: number;
+  readonly minSample: number;
+}
+
+export const DEFAULT_HISTORY: HistorySettings = {
+  halfLifeMs: 7 * 24 * 60 * 60 * 1000,
+  minSample: 3,
+};
+
+/** One finished run of the candidate's at this board stage, as SuperWitness reported it. */
+export interface StageRun {
+  /** When it ended, in ms since the epoch. */
+  readonly atMs: number;
+  readonly succeeded: boolean;
+  /** The newest verdict's pass mark from 0 to 1; null with none. */
+  readonly verdict: number | null;
+}
+
+/**
+ * A candidate's history at this stage, as the decision records it: what was read and what it
+ * came to. `outcomeRate` and `verdictRate` are one half below `minSample`; `stageRecord`, the
+ * term the candidate is ranked by, is their mean.
+ */
+export interface StageHistory {
+  /** Finished runs read. */
+  readonly runs: number;
+  /** Of those, the ones that succeeded. */
+  readonly succeeded: number;
+  /** Runs carrying a verdict pass mark. */
+  readonly verdicts: number;
+  /** The sum of those marks. */
+  readonly passes: number;
+  /** The runs' summed recency weight. */
+  readonly weight: number;
+  readonly outcomeRate: number;
+  readonly verdictRate: number;
+  readonly stageRecord: number;
+}
+
+/**
+ * A candidate's record at this stage. Each run weighs `0.5 ^ (age / halfLife)` (a run from the
+ * future weighs 1). The outcome rate is the weighted share that succeeded and the verdict rate
+ * the weighted mean pass mark, each smoothed toward one half as `(Σ w·x + 1) / (Σ w + 2)`, and
+ * each exactly one half when fewer than `minSample` runs feed it, so a new agent is neither
+ * starved nor favoured. The record is the mean of the two.
+ */
+export function stageHistory(
+  runs: readonly StageRun[],
+  nowMs: number,
+  settings: HistorySettings = DEFAULT_HISTORY,
+): StageHistory {
+  let weight = 0;
+  let won = 0;
+  let succeeded = 0;
+  let verdicts = 0;
+  let passes = 0;
+  let verdictWeight = 0;
+  let verdictWon = 0;
+  for (const run of runs) {
+    const age = Math.max(0, nowMs - run.atMs);
+    const w = Math.pow(0.5, age / settings.halfLifeMs);
+    weight += w;
+    if (run.succeeded) {
+      won += w;
+      succeeded++;
+    }
+    if (run.verdict !== null) {
+      verdicts++;
+      passes += run.verdict;
+      verdictWeight += w;
+      verdictWon += w * run.verdict;
+    }
+  }
+  const outcomeRate =
+    runs.length < settings.minSample ? 0.5 : (won + 1) / (weight + 2);
+  const verdictRate =
+    verdicts < settings.minSample
+      ? 0.5
+      : (verdictWon + 1) / (verdictWeight + 2);
+  return {
+    runs: runs.length,
+    succeeded,
+    verdicts,
+    passes,
+    weight,
+    outcomeRate,
+    verdictRate,
+    stageRecord: (outcomeRate + verdictRate) / 2,
+  };
+}
 
 /** Each filter a candidate passes through, and the reason code it rejects with. */
 export const FILTERS = {
@@ -158,6 +257,8 @@ export interface CandidateRecord {
    * suggestion (`suggest`) proposes.
    */
   readonly capable?: boolean;
+  /** The candidate's history at this stage; null when SuperWitness's was not read. */
+  readonly stageHistory?: StageHistory | null;
 }
 
 /** The card a decision is about. */
@@ -297,6 +398,11 @@ export interface CandidateFacts {
   };
   /** Cards this service holds for the agent right now, on any board. */
   readonly holds: number;
+  /**
+   * Its finished runs at this board stage, from SuperWitness; unset when they were not read, and
+   * then the stage record does not weigh for anyone.
+   */
+  readonly stageRuns?: readonly StageRun[];
 }
 
 /** Everything placement needs for one card, already read, with the time it is placed at. */
@@ -308,6 +414,8 @@ export interface PlacementInput {
   readonly ladder?: Ladder;
   /** How the ladder relaxes; `DEFAULT_TIERS` when unset. */
   readonly tiers?: TierSettings;
+  /** How a stage's history weighs; `DEFAULT_HISTORY` when unset. */
+  readonly history?: HistorySettings;
 }
 
 /** Every filter's result for one candidate. An agent off the roster goes through that one only. */
@@ -355,14 +463,19 @@ export function recentlyNoShow(
   return recent.length >= NO_SHOW_LIMIT;
 }
 
-/** The terms an eligible candidate is ranked by, before its rank is known. */
+/**
+ * The terms an eligible candidate is ranked by, before its rank is known. `stageRecord` is there
+ * only when its stage history is given.
+ */
 export function scoreTerms(
   facts: CandidateFacts,
   nowMs: number,
-): { successRate: number; sinceLastDispatchS: number } {
+  stage: StageHistory | null = null,
+): { stageRecord?: number; successRate: number; sinceLastDispatchS: number } {
   const { settled, claimed } = facts.history;
   const last = facts.roster?.lastDispatchedAtMs ?? null;
   return {
+    ...(stage !== null ? { stageRecord: stage.stageRecord } : {}),
     successRate: (claimed + 1) / (settled + 2),
     sinceLastDispatchS:
       last === null
@@ -379,6 +492,7 @@ export function compareTerms(
   b: { agentId: string; terms: Terms },
 ): number {
   return (
+    (b.terms.stageRecord ?? 0) - (a.terms.stageRecord ?? 0) ||
     b.terms.successRate - a.terms.successRate ||
     b.terms.sinceLastDispatchS - a.terms.sinceLastDispatchS ||
     (a.agentId < b.agentId ? -1 : a.agentId > b.agentId ? 1 : 0)
@@ -418,11 +532,29 @@ export function place(input: PlacementInput): Decision {
     facts,
     filters: filter(facts, input.nowMs, passedOver.has(facts.agentId)),
   }));
-  const eligible = filtered
-    .filter(({ filters }) => filters.every((r) => r.passed))
+  const settings = input.history ?? DEFAULT_HISTORY;
+  const histories = new Map<string, StageHistory>();
+  for (const { facts } of filtered)
+    if (facts.stageRuns !== undefined)
+      histories.set(
+        facts.agentId,
+        stageHistory(facts.stageRuns, input.nowMs, settings),
+      );
+  const passing = filtered.filter(({ filters }) =>
+    filters.every((r) => r.passed),
+  );
+  // The stage record weighs only when every eligible candidate has one: else none is compared on it.
+  const weighHistory = passing.every(({ facts }) =>
+    histories.has(facts.agentId),
+  );
+  const eligible = passing
     .map(({ facts }) => ({
       agentId: facts.agentId,
-      terms: scoreTerms(facts, input.nowMs),
+      terms: scoreTerms(
+        facts,
+        input.nowMs,
+        weighHistory ? (histories.get(facts.agentId) ?? null) : null,
+      ),
     }))
     .sort(compareTerms);
   const scores = new Map<string, Score>(
@@ -443,6 +575,7 @@ export function place(input: PlacementInput): Decision {
     ...(filters.some((r) => r.filter === "roster" && !r.passed)
       ? { capable: !facts.pipeline.reasons.includes("capability_mismatch") }
       : {}),
+    stageHistory: histories.get(facts.agentId) ?? null,
   }));
 
   const rostered = filtered.filter(({ filters }) =>

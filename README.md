@@ -33,8 +33,8 @@ events, for that board) it:
      only lapse against it), not a recent no-show (`recently-no-show`: two holds lapsed unclaimed
      in the last 30 minutes, on any cards), and not passed over (`passed-over`: its hold on this
      card already lapsed in the card's current ladder);
-   - **scores** the rest: the agent's success rate on this board (holds it claimed, smoothed),
-     then least recently used;
+   - **scores** the rest: the agent's **record at this stage** (from SuperWitness, below), then
+     its success rate on this board (holds it claimed, smoothed), then least recently used;
    - with two or more rostered candidates, **chooses** the best and asks SuperPipeline to hold
      the card for it for the tier's window; with one there is no choice, and pull already gives
      it the card (`one-candidate`). When the only free candidates hold other cards, or every
@@ -50,8 +50,29 @@ After each sweep it also computes **roster suggestions** from its own decisions:
 person, never a change (see below).
 
 Not yet: publishing each decision as an event through treaty's relay (it needs a decision event
-in treaty's catalogue first), history from SuperWitness in the score, and publishing roster
-suggestions to chat (read them on the operator API until then).
+in treaty's catalogue first), and publishing roster suggestions to chat (read them on the operator API until then).
+
+### History in the score
+
+When `SUPERWITNESS_URL` is set, each pass reads SuperWitness's finished runs at each board stage it
+places a card at, once per board stage (`GET /v1/runs?source=superpipeline&scope=<board>&stage_key=<stage>&status=succeeded&status=failed&since=<window>`,
+up to 1000 runs), and joins them to candidates by the run's executor principal. A cancelled run
+judged nothing and is not read. For each candidate:
+
+- each run weighs `0.5 ^ (age / half-life)`;
+- the **outcome rate** is the weighted share that succeeded, `(Σ w·succeeded + 1) / (Σ w + 2)`;
+- the **verdict rate** is the weighted mean of the newest verdict's pass mark,
+  `(Σ w·mark + 1) / (Σ w + 2)`: a `score` as it stands, a `decision` of pass, approve or accept
+  as 1 and fail, reject or request_changes as 0; any other verdict is no mark;
+- each rate is exactly one half below `SUPERDISPATCH_HISTORY_MIN_SAMPLE` runs (or marks), so a
+  new agent is neither starved nor favoured;
+- the **stage record** is the mean of the two rates, and ranks first.
+
+Every candidate's history is recorded on the decision (`stageHistory`: runs, succeeded, verdicts,
+passes, weight, both rates and the record). SuperWitness unset, refusing or unreachable never
+blocks a placement: the record term is left out for everyone and the order is the board's own;
+the decision's candidates carry `stageHistory: null`. The record weighs only when it was read for
+every eligible candidate.
 
 ### Tiers
 
@@ -147,25 +168,30 @@ bun apps/dispatch/src/main.ts
 curl http://127.0.0.1:8796/healthz
 ```
 
-| Setting                               | What it is                                                                                                |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `SUPERPIPELINE_URL`                   | Where SuperPipeline's API answers: the ready cards and the eligibility read for each                      |
-| `ORG_PLANE_URL`                       | Where the organization plane (Accounts) answers                                                           |
-| `ORG_PLANE_SERVICE_CREDENTIAL`        | This service's credential there, `svc_<20 hex>:<secret>`                                                  |
-| `AGENTPOD_URL`                        | Where AgentPod's API answers: the roster, and each agent's load and health                                |
-| `AGENTPOD_AUDIENCE`                   | The hub's `ORG_PLANE_AUDIENCE`, when it differs from `AGENTPOD_URL`; that URL when unset                  |
-| `TREATY_RELAY_DELIVERY_SECRET`        | The secret the event relay signs its deliveries to this service with                                      |
-| `SUPERDISPATCH_OPERATOR_TOKEN_SHA256` | The SHA-256 (64 hex digits) of the operator's bearer token; the token itself is not kept                  |
-| `SUPERDISPATCH_DATA_DIR`              | Where the store keeps its database; `/data` when unset; absolute                                          |
-| `SUPERDISPATCH_SWEEP_SECONDS`         | Seconds between two sweeps of every opted-in board, 5 to 3600; 30 when unset                              |
-| `SUPERDISPATCH_RESERVATION_SECONDS`   | Seconds the winner tier holds a card, 10 to 300; 60 when unset                                            |
-| `SUPERDISPATCH_RUNNER_UP_SECONDS`     | Seconds each runner-up hold lasts, 10 to 300; 30 when unset                                               |
-| `SUPERDISPATCH_TOP_K`                 | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset                              |
-| `SUPERDISPATCH_FAIRNESS`              | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset                 |
-| `SUPERDISPATCH_SUGGEST_EVERY_SECONDS` | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset |
-| `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`  | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                   |
-| `SUPERDISPATCH_STALL_MINUTES`         | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset      |
-| `PORT`                                | Where it listens; 8796 when unset                                                                         |
+| Setting                                | What it is                                                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `SUPERPIPELINE_URL`                    | Where SuperPipeline's API answers: the ready cards and the eligibility read for each                      |
+| `ORG_PLANE_URL`                        | Where the organization plane (Accounts) answers                                                           |
+| `ORG_PLANE_SERVICE_CREDENTIAL`         | This service's credential there, `svc_<20 hex>:<secret>`                                                  |
+| `AGENTPOD_URL`                         | Where AgentPod's API answers: the roster, and each agent's load and health                                |
+| `AGENTPOD_AUDIENCE`                    | The hub's `ORG_PLANE_AUDIENCE`, when it differs from `AGENTPOD_URL`; that URL when unset                  |
+| `TREATY_RELAY_DELIVERY_SECRET`         | The secret the event relay signs its deliveries to this service with                                      |
+| `SUPERDISPATCH_OPERATOR_TOKEN_SHA256`  | The SHA-256 (64 hex digits) of the operator's bearer token; the token itself is not kept                  |
+| `SUPERDISPATCH_DATA_DIR`               | Where the store keeps its database; `/data` when unset; absolute                                          |
+| `SUPERDISPATCH_SWEEP_SECONDS`          | Seconds between two sweeps of every opted-in board, 5 to 3600; 30 when unset                              |
+| `SUPERDISPATCH_RESERVATION_SECONDS`    | Seconds the winner tier holds a card, 10 to 300; 60 when unset                                            |
+| `SUPERDISPATCH_RUNNER_UP_SECONDS`      | Seconds each runner-up hold lasts, 10 to 300; 30 when unset                                               |
+| `SUPERDISPATCH_TOP_K`                  | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset                              |
+| `SUPERDISPATCH_FAIRNESS`               | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset                 |
+| `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`  | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset |
+| `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`   | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                   |
+| `SUPERDISPATCH_STALL_MINUTES`          | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset      |
+| `SUPERWITNESS_URL`                     | Where SuperWitness's API answers, for each stage's history; unset, the score leaves it out                |
+| `SUPERWITNESS_AUDIENCE`                | SuperWitness's public URL, when it differs from `SUPERWITNESS_URL`; that URL when unset                   |
+| `SUPERDISPATCH_HISTORY_DAYS`           | Days of a stage's runs read, 1 to 365; 30 when unset                                                      |
+| `SUPERDISPATCH_HISTORY_MIN_SAMPLE`     | The fewest runs (or verdicts) a stage rate is read from, 1 to 100; 3 when unset                           |
+| `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS` | Days in which a run's weight halves, 1 to 365; 7 when unset                                               |
+| `PORT`                                 | Where it listens; 8796 when unset                                                                         |
 
 A missing or malformed setting stops it before it listens, naming the setting, never its value.
 
@@ -173,13 +199,16 @@ What it needs of the others:
 
 - **Accounts**: one service credential for this service, minted in the workspace, with the
   scopes `cards:read` (the board read), `dispatch:read` (the eligibility read) and
-  `dispatch:reserve` (the hold). Its tokens are asked for two audiences: SuperPipeline's URL and
-  the hub's `ORG_PLANE_AUDIENCE`.
+  `dispatch:reserve` (the hold). Its tokens are asked for SuperPipeline's URL, the hub's
+  `ORG_PLANE_AUDIENCE` and, when it is set, SuperWitness's public URL.
 - **SuperPipeline**: `GET /v1/boards/:id`, `GET /v1/boards/:id/cards/:cardId/eligibility` and
   `PUT /v1/boards/:id/cards/:cardId/reservation`. A SuperPipeline without the reservation verb
   refuses each hold, and the decision is recorded as `not-reserved`.
 - **AgentPod**: `GET /api/bridge/boards/:boardId/roster`, which the hub answers for a service
   listed in its `ROSTER_READERS`.
+- **SuperWitness** (optional): `GET /v1/runs`, which any token for its audience may read; no grant
+  scope. Runs carry `stage_key` only from a SuperPipeline that reports it
+  (`SUPERWITNESS_REPORT_STAGE`).
 - **The event relay** (optional): a subscriber for `evt.*.superpipeline.>` delivering to
   `/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET`. Without it the sweep alone
   places cards.
@@ -200,8 +229,9 @@ curl -X POST -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/suggesti
 
 A decision reads: `{ id, boardId, cardId, stageKey, policy, chosen, reason, tier: { name, step }
 | null, requires: { all, any } | null, candidates: [{ candidate: { agentId, principalId, stationId
-}, filters: [{ filter, passed, reason? }], score: { total, terms: { successRate,
-sinceLastDispatchS } } | null, capable? }], reservation:
+}, filters: [{ filter, passed, reason? }], score: { total, terms: { stageRecord?, successRate,
+sinceLastDispatchS } } | null, capable?, stageHistory: { runs, succeeded, verdicts, passes, weight,
+outcomeRate, verdictRate, stageRecord } | null }], reservation:
 { reservedUntil } | null, reservationRefused, outcome: { status, by, at } | null, createdAt }`.
 `tier` is null on decisions made before tiers, and `requires` (the capability the stage asked
 for) on those made before roster suggestions. `capable` is set only for an agent off the roster.

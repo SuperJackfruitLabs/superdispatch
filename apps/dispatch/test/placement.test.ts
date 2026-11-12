@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_HISTORY,
   DEFAULT_TIERS,
   FILTERS,
   MIN_CANDIDATES,
@@ -22,6 +23,8 @@ import {
   boardOrder,
   fairOrder,
   tierFor,
+  stageHistory,
+  type StageRun,
 } from "../src/placement/index.ts";
 
 const CARD: CardRef = { boardId: "brd_a", cardId: "crd_a", stageKey: "build" };
@@ -253,6 +256,7 @@ function agent(
     roster?: Partial<NonNullable<CandidateFacts["roster"]>> | null;
     history?: Partial<CandidateFacts["history"]>;
     holds?: number;
+    stageRuns?: StageRun[];
   } = {},
 ): CandidateFacts {
   const reasons = over.reasons ?? [];
@@ -273,6 +277,7 @@ function agent(
           },
     history: { settled: 0, claimed: 0, noShowsAtMs: [], ...over.history },
     holds: over.holds ?? 0,
+    ...(over.stageRuns !== undefined ? { stageRuns: over.stageRuns } : {}),
   };
 }
 
@@ -521,7 +526,7 @@ describe("place: the decision", () => {
   });
 
   test("the policy has a name to record", () => {
-    expect(POLICY).toBe("idle-success-lru@2");
+    expect(POLICY).toBe("idle-stage-success-lru@3");
   });
 });
 
@@ -813,5 +818,167 @@ describe("fairness across boards", () => {
       "brd_busy/b2",
       "brd_quiet/q1",
     ]);
+  });
+});
+
+const DAY = 24 * 60 * MIN;
+
+/** `n` runs ending `ageMs` ago, the first `won` succeeded, each with `verdict`. */
+function runs(
+  n: number,
+  won: number,
+  verdict: number | null = null,
+  ageMs = 0,
+): StageRun[] {
+  return Array.from({ length: n }, (_, i) => ({
+    atMs: NOW - ageMs,
+    succeeded: i < won,
+    verdict,
+  }));
+}
+
+describe("stage history: the record", () => {
+  const S = { halfLifeMs: 7 * DAY, minSample: 3 };
+  // Each row: the runs, and the outcome rate, verdict rate and record they come to.
+  const table: Array<[string, StageRun[], number, number]> = [
+    ["no runs: neutral", [], 0.5, 0.5],
+    [
+      "below the minimum sample: neutral, however good",
+      runs(2, 2, 1),
+      0.5,
+      0.5,
+    ],
+    ["three of three, fresh, no verdicts", runs(3, 3), 4 / 5, 0.5],
+    ["none of three, fresh, all judged fail", runs(3, 0, 0), 1 / 5, 1 / 5],
+    ["three of four succeeded, all judged pass", runs(4, 3, 1), 4 / 6, 5 / 6],
+    ["score verdicts are averaged", runs(4, 4, 0.5), 5 / 6, 3 / 6],
+  ];
+  for (const [what, rs, outcome, verdict] of table) {
+    test(what, () => {
+      const h = stageHistory(rs, NOW, S);
+      expect(h.outcomeRate).toBeCloseTo(outcome);
+      expect(h.verdictRate).toBeCloseTo(verdict);
+      expect(h.stageRecord).toBeCloseTo((outcome + verdict) / 2);
+      expect(h.runs).toBe(rs.length);
+    });
+  }
+
+  test("a run weighs half as much each half-life older, and a run from the future weighs 1", () => {
+    const old = stageHistory(runs(3, 0, null, 7 * DAY), NOW, S);
+    expect(old.weight).toBeCloseTo(1.5);
+    // Three failures a half-life old weigh 1.5: (0 + 1) / (1.5 + 2).
+    expect(old.outcomeRate).toBeCloseTo(1 / 3.5);
+    expect(stageHistory(runs(3, 0, null, -DAY), NOW, S).weight).toBe(3);
+    // Fresh failures pull harder than old ones.
+    expect(stageHistory(runs(3, 0), NOW, S).outcomeRate).toBeLessThan(
+      old.outcomeRate,
+    );
+  });
+
+  test("the minimum sample counts verdicts apart from runs", () => {
+    const rs = [...runs(3, 3), ...runs(2, 2, 1)];
+    const h = stageHistory(rs, NOW, S);
+    expect([h.runs, h.verdicts, h.passes]).toEqual([5, 2, 2]);
+    expect(h.verdictRate).toBe(0.5);
+    expect(stageHistory(rs, NOW, { ...S, minSample: 2 }).verdictRate).toBe(
+      3 / 4,
+    );
+  });
+
+  test("the defaults: a week's half-life, three runs", () => {
+    expect(DEFAULT_HISTORY).toEqual({ halfLifeMs: 7 * DAY, minSample: 3 });
+  });
+});
+
+describe("place: the stage record", () => {
+  test("ranks first: a strong record at this stage beats a better board success rate and a longer idle", () => {
+    const d = decide(
+      agent("agt_a", {
+        history: { settled: 10, claimed: 10 },
+        roster: { lastDispatchedAtMs: null },
+        stageRuns: runs(5, 0, 0),
+      }),
+      agent("agt_b", { stageRuns: runs(5, 5, 1) }),
+    );
+    expect(chosen(d)).toBe("agt_b");
+  });
+
+  test("a new agent sits at one half: above a poor record, below a good one", () => {
+    const d = decide(
+      agent("agt_a", { stageRuns: runs(4, 0, 0) }),
+      agent("agt_n", { stageRuns: [] }),
+      agent("agt_z", { stageRuns: runs(4, 4, 1) }),
+    );
+    expect(chosen(d)).toBe("agt_z");
+    const totals = Object.fromEntries(
+      d.candidates.map((r) => [r.candidate.agentId, r.score?.total]),
+    );
+    expect(totals).toEqual({ agt_a: 1, agt_n: 2, agt_z: 3 });
+  });
+
+  test("the record is recorded on every candidate it was read for, with its inputs, and weighs as a term", () => {
+    const d = decide(
+      agent("agt_a", { stageRuns: runs(4, 3, 1) }),
+      agent("agt_b", { stageRuns: [] }),
+      agent("agt_x", { roster: { ready: false }, stageRuns: runs(3, 3) }),
+    );
+    const byId = Object.fromEntries(
+      d.candidates.map((r) => [r.candidate.agentId, r]),
+    );
+    expect(byId.agt_a?.stageHistory).toMatchObject({
+      runs: 4,
+      succeeded: 3,
+      verdicts: 4,
+      passes: 4,
+    });
+    expect(byId.agt_a?.score?.terms.stageRecord).toBeCloseTo(
+      (4 / 6 + 5 / 6) / 2,
+    );
+    expect(byId.agt_b?.score?.terms.stageRecord).toBe(0.5);
+    // A rejected candidate is not scored, but what was read of it is still recorded.
+    expect(byId.agt_x?.score).toBeNull();
+    expect(byId.agt_x?.stageHistory?.runs).toBe(3);
+  });
+
+  test("not read: no stage record, nothing recorded, and the order is the board's own", () => {
+    const without = decide(
+      agent("agt_a", { history: { settled: 4, claimed: 1 } }),
+      agent("agt_b", { history: { settled: 4, claimed: 3 } }),
+    );
+    expect(chosen(without)).toBe("agt_b");
+    for (const r of without.candidates) {
+      expect(r.stageHistory).toBeNull();
+      expect(r.score?.terms).not.toHaveProperty("stageRecord");
+    }
+  });
+
+  test("read for some eligible candidates and not others: it weighs for nobody", () => {
+    const d = decide(
+      agent("agt_a", {
+        history: { settled: 4, claimed: 3 },
+        stageRuns: runs(5, 0, 0),
+      }),
+      agent("agt_b", {
+        history: { settled: 4, claimed: 1 },
+      }),
+    );
+    expect(chosen(d)).toBe("agt_a");
+    for (const r of d.candidates)
+      expect(r.score?.terms).not.toHaveProperty("stageRecord");
+  });
+
+  test("history settings from the input: a minimum sample above the runs leaves both neutral", () => {
+    const d = place({
+      card: CARD,
+      nowMs: NOW,
+      history: { halfLifeMs: DAY, minSample: 10 },
+      candidates: [
+        agent("agt_a", { stageRuns: runs(5, 0, 0) }),
+        agent("agt_b", { stageRuns: runs(5, 5, 1) }),
+      ],
+    });
+    // Both neutral: the tie falls to the agent id.
+    expect(chosen(d)).toBe("agt_a");
+    expect(decisionProblems(d)).toEqual([]);
   });
 });

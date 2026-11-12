@@ -11,6 +11,7 @@ import {
   createAgentpod,
   createServiceTokens,
   createSuperpipeline,
+  createSuperwitness,
 } from "./sources/index.ts";
 import { openStore } from "./store/index.ts";
 
@@ -36,10 +37,26 @@ const agentpod = createAgentpod({
     audience: config.agentpodAudience,
   }),
 });
+const superwitness =
+  config.superwitnessUrl === null || config.superwitnessAudience === null
+    ? null
+    : createSuperwitness({
+        baseUrl: config.superwitnessUrl,
+        tokens: createServiceTokens({
+          accounts,
+          audience: config.superwitnessAudience,
+        }),
+      });
 const loop = createLoop({
   store,
   superpipeline,
   agentpod,
+  superwitness,
+  history: {
+    windowMs: config.historyDays * 24 * 60 * 60 * 1000,
+    halfLifeMs: config.historyHalfLifeDays * 24 * 60 * 60 * 1000,
+    minSample: config.historyMinSample,
+  },
   tiers: {
     winnerSeconds: config.reservationSeconds,
     runnerUpSeconds: config.runnerUpSeconds,
