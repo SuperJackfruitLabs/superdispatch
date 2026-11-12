@@ -922,3 +922,4 @@ function scoreIsFinite(score: Score): boolean {
 }
 
 export * from "./suggest.ts";
+export * from "./supply.ts";
