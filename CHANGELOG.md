@@ -4,6 +4,11 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
 
 ## Unreleased
 
+- Station filters: a stage's `placement` (isolation, models, tools, credentials) filters
+  candidates on AgentPod's capability registry, rejecting with `isolation-too-weak`,
+  `model-mismatch`, `tool-missing` or `credential-missing` and recording what the station lacks.
+  Off for a stage that states nothing; unchecked when the registry cannot be read. Settings
+  `SUPERDISPATCH_STATION_FILTERS` (`on`/`off`) and `SUPERDISPATCH_MIN_PROOF`.
 - The service skeleton: it starts, checks its settings, opens its store and answers a health
   check.
 - Placement: for each ready card on an opted-in board it filters every agent (on AgentPod's

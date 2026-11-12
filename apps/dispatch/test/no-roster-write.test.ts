@@ -57,13 +57,14 @@ async function everyRequest(
 const ROSTER_PATH = /roster|bridge|member|agents|stations/i;
 
 describe("no client can edit a roster", () => {
-  test("AgentPod's client reads the roster and does nothing else", async () => {
+  test("AgentPod's client reads the roster and the capability registry, and does nothing else", async () => {
     const { methods, requests } = await everyRequest((fetch) =>
       createAgentpod({ baseUrl: "https://hub.example", tokens, fetch }),
     );
-    expect(methods).toEqual(["roster"]);
+    expect(methods).toEqual(["roster", "stationCapabilities"]);
     expect(requests).toEqual([
       "GET /api/bridge/boards/brd_00000000000000b1/roster",
+      "GET /api/catalog/stations",
     ]);
   });
 

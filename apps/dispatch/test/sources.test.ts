@@ -196,18 +196,21 @@ describe("superpipeline", () => {
           ownerKind: "capability",
           hasRequires: false,
           requires: { all: ["code"], any: [] },
+          placement: null,
         },
         {
           key: "review",
           ownerKind: null,
           hasRequires: true,
           requires: { all: ["review"], any: [] },
+          placement: null,
         },
         {
           key: "approve",
           ownerKind: "human",
           hasRequires: false,
           requires: { all: [], any: [] },
+          placement: null,
         },
       ],
       cards: [

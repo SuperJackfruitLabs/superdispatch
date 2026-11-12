@@ -51,6 +51,8 @@ describe("loadConfig", () => {
       topK: 3,
       fairness: "round-robin",
       candidates: "roster",
+      stationFilters: "on",
+      minProof: "declared",
       suggestEverySeconds: 0,
       suggestWindowHours: 24,
       stallMinutes: 30,

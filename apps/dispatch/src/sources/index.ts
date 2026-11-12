@@ -19,6 +19,7 @@
  */
 export * from "./accounts.ts";
 export * from "./agentpod.ts";
+export * from "./capabilities.ts";
 export * from "./http.ts";
 export * from "./load.ts";
 export * from "./superpipeline.ts";

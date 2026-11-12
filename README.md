@@ -65,6 +65,34 @@ in treaty's catalogue first), and publishing roster suggestions to chat (read th
   with a disabled bridge row stays out either way: a person turned it off on this board. When the
   read fails, only the roster is placed that pass.
 
+### Station filters
+
+A stage may say what a **station** needs to work it, in its `placement` (SuperPipeline):
+`isolation` (the weakest acceptable, `host` < `container` < `sandbox`), `models` (any one),
+`tools` and `credentials` (every one), in the ids of AgentPod's capability catalog (charter
+2026-11-13: AgentPod owns the catalog and the registry; SuperDispatch reads it). For a card whose
+stage states one, a pass reads AgentPod's registry once (`GET /api/catalog/stations`) and filters
+each candidate's station:
+
+| Filter        | Rejects with         | When                                                  |
+| ------------- | -------------------- | ----------------------------------------------------- |
+| `isolation`   | `isolation-too-weak` | the station is isolated less strongly than asked      |
+| `model`       | `model-mismatch`     | the station's model is none of those asked for        |
+| `tools`       | `tool-missing`       | the station lacks a catalog entry asked for           |
+| `credentials` | `credential-missing` | the station reaches no credential of a name asked for |
+
+Each rejection is recorded on its candidate with `missing`: what the station lacks, in the stage's
+words. A candidate whose station the registry does not list has nothing, so it fails each stated
+need. A fact counts only when its proof is at least `SUPERDISPATCH_MIN_PROOF` (`probed` >
+`installed` > `declared`; every fact counts by default).
+
+They are **off** for a stage that states nothing: no filter runs and nothing is recorded for them.
+When the registry cannot be read (an AgentPod without it answers 404, or the read is refused), the
+pass leaves the needs **unchecked**, says so in the log, and places as if none were stated.
+`SUPERDISPATCH_STATION_FILTERS=off` never reads the registry.
+
+### The load shape
+
 Both sources give one shape, and the health and idle filters read only that:
 
 ```
@@ -214,6 +242,8 @@ curl http://127.0.0.1:8796/healthz
 | `SUPERDISPATCH_TOP_K`                  | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset                                  |
 | `SUPERDISPATCH_FAIRNESS`               | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset                     |
 | `SUPERDISPATCH_CANDIDATES`             | `roster` (the roster alone) or `all` (also agents with their own token that report load); `roster` when unset |
+| `SUPERDISPATCH_STATION_FILTERS`        | `on` (a stage's placement filters on AgentPod's capability registry) or `off`; `on` when unset                |
+| `SUPERDISPATCH_MIN_PROOF`              | The weakest registry proof that satisfies a need: `probed`, `installed` or `declared`; `declared` when unset  |
 | `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`  | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset     |
 | `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`   | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                       |
 | `SUPERDISPATCH_STALL_MINUTES`          | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset          |
@@ -238,7 +268,9 @@ What it needs of the others:
   `SUPERDISPATCH_CANDIDATES=all`, also `GET /v1/agents/load` (on `dispatch:read`); a
   SuperPipeline without it places the roster alone.
 - **AgentPod**: `GET /api/bridge/boards/:boardId/roster`, which the hub answers for a service
-  listed in its `ROSTER_READERS`.
+  listed in its `ROSTER_READERS`; and, for stages that state a placement,
+  `GET /api/catalog/stations`, for a service listed in its `CATALOG_READERS`. A hub without the
+  catalog read leaves placements unchecked.
 - **SuperWitness** (optional): `GET /v1/runs`, which any token for its audience may read; no grant
   scope. Runs carry `stage_key` only from a SuperPipeline that reports it
   (`SUPERWITNESS_REPORT_STAGE`).

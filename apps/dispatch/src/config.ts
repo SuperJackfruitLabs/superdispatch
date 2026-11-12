@@ -95,6 +95,28 @@ export const CANDIDATE_SETS = ["roster", "all"] as const;
 export type CandidateSet = (typeof CANDIDATE_SETS)[number];
 export const DEFAULT_CANDIDATE_SET: CandidateSet = "roster";
 
+/**
+ * How a fact in AgentPod's capability registry is known, strongest first: `probed` (something
+ * checked it works), `installed` (AgentPod put it there), `declared` (someone said so).
+ */
+export const PROOF_ORDER = ["probed", "installed", "declared"] as const;
+export type Proof = (typeof PROOF_ORDER)[number];
+
+/**
+ * The weakest proof a station's fact may have and still satisfy a stage's `placement`
+ * (`SUPERDISPATCH_MIN_PROOF`). `declared`, every fact counts, until the operator says otherwise.
+ */
+export const DEFAULT_MIN_PROOF: Proof = "declared";
+
+/**
+ * Whether a stage's `placement` filters candidates (`SUPERDISPATCH_STATION_FILTERS`): `on`, the
+ * default, reads AgentPod's capability registry for a card whose stage states a placement; `off`
+ * reads nothing and places as if no stage stated one.
+ */
+export const STATION_FILTER_MODES = ["on", "off"] as const;
+export type StationFilterMode = (typeof STATION_FILTER_MODES)[number];
+export const DEFAULT_STATION_FILTERS: StationFilterMode = "on";
+
 export interface Config {
   port: number;
   /** SuperPipeline's API URL, and the audience of every assertion asked for it. */
@@ -136,6 +158,10 @@ export interface Config {
   fairness: Fairness;
   /** Who placement considers: the roster alone, or every agent that reports its load. */
   candidates: CandidateSet;
+  /** Whether a stage's placement filters candidates on AgentPod's capability registry. */
+  stationFilters: StationFilterMode;
+  /** The weakest proof a registry fact may have and still satisfy a placement. */
+  minProof: Proof;
   /** Seconds between two computations of the roster suggestions; 0 is every sweep. */
   suggestEverySeconds: number;
   /** Hours of decisions the roster suggestions read. */
@@ -311,6 +337,21 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       );
   }
 
+  const stationFilters = oneOf(
+    env,
+    "SUPERDISPATCH_STATION_FILTERS",
+    STATION_FILTER_MODES,
+    DEFAULT_STATION_FILTERS,
+    problems,
+  );
+  const minProof = oneOf(
+    env,
+    "SUPERDISPATCH_MIN_PROOF",
+    PROOF_ORDER,
+    DEFAULT_MIN_PROOF,
+    problems,
+  );
+
   const suggestEverySeconds = wholeNumber(
     env,
     "SUPERDISPATCH_SUGGEST_EVERY_SECONDS",
@@ -361,6 +402,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     topK,
     fairness,
     candidates,
+    stationFilters,
+    minProof,
     suggestEverySeconds,
     suggestWindowHours,
     stallMinutes,
@@ -423,4 +466,20 @@ export function tokenMatchesSha256(
 
 function sha256(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
+}
+
+/** A setting that must be one of `allowed`: its default when unset, a problem when it is not one. */
+function oneOf<T extends string>(
+  env: Record<string, string | undefined>,
+  name: string,
+  allowed: readonly T[],
+  fallback: T,
+  problems: string[],
+): T {
+  const raw = env[name]?.trim();
+  if (!raw) return fallback;
+  const found = allowed.find((a) => a === raw);
+  if (found !== undefined) return found;
+  problems.push(`${name} is not one of ${allowed.join(", ")}`);
+  return fallback;
 }

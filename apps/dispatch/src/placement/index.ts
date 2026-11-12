@@ -19,6 +19,8 @@
  *   (`source`: `roster` or `direct`).
  * - **Filters.** In the candidate set (the `roster` filter); SuperPipeline's own verdict for this
  *   card (capability, grant, the board's concurrency for the agent, and any other reason it gives);
+ *   the **station filters**, only when the card's stage states a `placement` and AgentPod's
+ *   capability registry was read (isolation, model, tools, credentials; `requirements.ts`);
  *   **healthy** and **idle** by the agent's load in the shared shape (`AgentLoad`, whichever source
  *   reported it): healthy, and less work in hand than its capacity (for a rostered agent, no work
  *   in hand on any board: the workspace-wide cap, and the reason a reservation is only ever made
@@ -59,7 +61,15 @@ import {
   DEFAULT_CANDIDATE_SET,
   type CandidateSet,
 } from "../config.ts";
-import { isIdle, type AgentLoad, type LoadSource } from "../sources/index.ts";
+import {
+  isIdle,
+  type AgentLoad,
+  type LoadSource,
+  type StageNeeds,
+  type StationCaps,
+} from "../sources/index.ts";
+import { DEFAULT_MIN_PROOF, type Proof } from "../config.ts";
+import { checkNeeds, type NeedName } from "./requirements.ts";
 
 export { CANDIDATE_SETS, DEFAULT_CANDIDATE_SET, type CandidateSet };
 
@@ -194,6 +204,16 @@ export const FILTERS = {
    * filter here names (a reason added in a later SuperPipeline release among them).
    */
   claimable: "not-claimable",
+  /**
+   * The station filters, each only when the card's stage states it in its `placement`
+   * (`requirements.ts`), against AgentPod's capability registry: isolated at least as strongly as
+   * asked, running one of the models asked for, holding every tool and reaching every credential
+   * name asked for.
+   */
+  isolation: "isolation-too-weak",
+  model: "model-mismatch",
+  tools: "tool-missing",
+  credentials: "credential-missing",
   /** The agent is healthy by its load (`AgentLoad.healthy`): ready to take a card held for it. */
   health: "unhealthy",
   /** The agent is under its board's concurrency (SuperPipeline's `concurrency_reached`). */
@@ -231,6 +251,8 @@ export type FilterResult =
       readonly filter: FilterName;
       readonly passed: false;
       readonly reason: RejectionReason;
+      /** A station filter's rejection: what the station lacks, in the stage's words. */
+      readonly missing?: readonly string[];
     };
 
 /** A filter's pass. */
@@ -424,6 +446,11 @@ export interface CandidateFacts {
    * then the stage record does not weigh for anyone.
    */
   readonly stageRuns?: readonly StageRun[];
+  /**
+   * Its station's row in AgentPod's capability registry: null when the registry has none for it (or
+   * it has no station); unset when the registry was not read, and then no station filter runs.
+   */
+  readonly station?: StationCaps | null;
 }
 
 /** Everything placement needs for one card, already read, with the time it is placed at. */
@@ -439,6 +466,10 @@ export interface PlacementInput {
   readonly history?: HistorySettings;
   /** Who is considered; `DEFAULT_CANDIDATE_SET` (`roster`) when unset. */
   readonly candidateSet?: CandidateSet;
+  /** What the card's stage says a station needs; none when unset or null. */
+  readonly needs?: StageNeeds | null;
+  /** The weakest registry proof that satisfies a need; `DEFAULT_MIN_PROOF` when unset. */
+  readonly minProof?: Proof;
 }
 
 /**
@@ -463,6 +494,8 @@ export function filter(
   nowMs: number,
   passedOver = false,
   set: CandidateSet = DEFAULT_CANDIDATE_SET,
+  needs: StageNeeds | null = null,
+  minProof: Proof = DEFAULT_MIN_PROOF,
 ): readonly FilterResult[] {
   const load = inCandidateSet(facts, set);
   if (load === null) return [rejected("roster")];
@@ -483,6 +516,7 @@ export function filter(
     check("capability", !named.has("capability")),
     check("grant", !named.has("grant")),
     check("claimable", !unnamed),
+    ...stationFilters(facts, needs, minProof),
     check("health", load.healthy),
     check("capacity", !named.has("capacity")),
     check("idle", isIdle(load)),
@@ -490,6 +524,34 @@ export function filter(
     check("noShow", !recentlyNoShow(facts.history.noShowsAtMs, nowMs)),
     check("passedOver", !passedOver),
   ];
+}
+
+const NEED_FILTERS: Readonly<Record<NeedName, FilterName>> = {
+  isolation: "isolation",
+  model: "model",
+  tools: "tools",
+  credentials: "credentials",
+};
+
+/** The station filters: they run only when the card's stage states a need. */
+export const STATION_FILTERS: readonly FilterName[] =
+  Object.values(NEED_FILTERS);
+
+/**
+ * The station filters the stage states, with what the station lacks on a rejection. None when the
+ * stage states nothing, or when the registry was not read (`station` unset): unchecked, not failed.
+ */
+function stationFilters(
+  facts: CandidateFacts,
+  needs: StageNeeds | null,
+  minProof: Proof,
+): FilterResult[] {
+  if (facts.station === undefined) return [];
+  return checkNeeds(needs, facts.station, minProof).map((r) =>
+    r.ok
+      ? passed(NEED_FILTERS[r.need])
+      : { ...rejected(NEED_FILTERS[r.need]), missing: r.missing },
+  );
 }
 
 /** Have `NO_SHOW_LIMIT` of these lapses happened within the window before `nowMs`? */
@@ -571,7 +633,14 @@ export function place(input: PlacementInput): Decision {
   const set = input.candidateSet ?? DEFAULT_CANDIDATE_SET;
   const filtered = candidates.map((facts) => ({
     facts,
-    filters: filter(facts, input.nowMs, passedOver.has(facts.agentId), set),
+    filters: filter(
+      facts,
+      input.nowMs,
+      passedOver.has(facts.agentId),
+      set,
+      input.needs ?? null,
+      input.minProof,
+    ),
   }));
   const settings = input.history ?? DEFAULT_HISTORY;
   const histories = new Map<string, StageHistory>();
