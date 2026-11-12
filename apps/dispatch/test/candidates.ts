@@ -1,4 +1,6 @@
 import type { CandidateFacts } from "../src/placement/index.ts";
+import { FEATURES } from "../src/placement/dataset.ts";
+import type { ModelBody } from "../src/placement/learned.ts";
 
 /** The time the learned-routing tests place at: 13:00 UTC. */
 export const T0 = Date.parse("2026-11-12T13:00:00.000Z");
@@ -25,5 +27,16 @@ export function facts(
     history: { settled: 0, claimed: 0, noShowsAtMs: [] },
     holds: 0,
     ...rest,
+  };
+}
+
+/** A model that prefers the agent whose station took work most recently. */
+export function recentFirst(): ModelBody {
+  return {
+    features: [...FEATURES],
+    weights: FEATURES.map((f) => (f === "recency" ? -5 : 0)),
+    bias: 0,
+    means: FEATURES.map(() => 0),
+    scales: FEATURES.map(() => 1),
   };
 }
