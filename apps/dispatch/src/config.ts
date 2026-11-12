@@ -36,6 +36,15 @@ export const DEFAULT_DATA_DIR = "/data";
 /** Where the service listens when `PORT` is unset. */
 export const DEFAULT_PORT = 8796;
 
+/** How often every opted-in board is looked at when `SUPERDISPATCH_SWEEP_SECONDS` is unset. */
+export const DEFAULT_SWEEP_SECONDS = 30;
+
+/**
+ * How long SuperPipeline holds a card for the chosen agent when
+ * `SUPERDISPATCH_RESERVATION_SECONDS` is unset. SuperPipeline takes 10 to 300.
+ */
+export const DEFAULT_RESERVATION_SECONDS = 60;
+
 export interface Config {
   port: number;
   /** SuperPipeline's API URL, and the audience of every assertion asked for it. */
@@ -46,7 +55,16 @@ export interface Config {
   orgPlaneCredential: ServiceCredential;
   /** AgentPod's API URL. */
   agentpodUrl: string;
+  /**
+   * The audience of this service's tokens for AgentPod: the hub's own `ORG_PLANE_AUDIENCE`, which
+   * is its public URL and can differ from the address this service reaches it at.
+   */
+  agentpodAudience: string;
   relayDeliverySecret: string;
+  /** Seconds between two sweeps of every opted-in board. */
+  sweepSeconds: number;
+  /** Seconds SuperPipeline holds a card for the chosen agent. */
+  reservationSeconds: number;
   /** The directory the store keeps its database in; absolute. */
   dataDir: string;
   /** The SHA-256 of the operator's bearer token, 64 lowercase hex digits. */
@@ -87,10 +105,14 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     "SUPERDISPATCH_OPERATOR_TOKEN_SHA256",
   ).toLowerCase();
 
+  const explicitAudience = env.AGENTPOD_AUDIENCE?.trim() ?? "";
+  const agentpodAudience = explicitAudience || agentpodUrl;
+
   for (const [name, value] of [
     ["SUPERPIPELINE_URL", superpipelineUrl],
     ["ORG_PLANE_URL", orgPlaneUrl],
     ["AGENTPOD_URL", agentpodUrl],
+    ["AGENTPOD_AUDIENCE", explicitAudience],
   ] as const) {
     if (value !== "" && !isHttpUrl(value)) {
       problems.push(`${name} is not an http(s) URL`);
@@ -127,6 +149,23 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     }
   }
 
+  const sweepSeconds = wholeNumber(
+    env,
+    "SUPERDISPATCH_SWEEP_SECONDS",
+    DEFAULT_SWEEP_SECONDS,
+    5,
+    3600,
+    problems,
+  );
+  const reservationSeconds = wholeNumber(
+    env,
+    "SUPERDISPATCH_RESERVATION_SECONDS",
+    DEFAULT_RESERVATION_SECONDS,
+    10,
+    300,
+    problems,
+  );
+
   if (problems.length > 0) throw new ConfigError(problems);
   return {
     port,
@@ -137,10 +176,32 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       secret: credential?.[2] ?? "",
     },
     agentpodUrl,
+    agentpodAudience,
     relayDeliverySecret,
+    sweepSeconds,
+    reservationSeconds,
     dataDir,
     operatorTokenSha256,
   };
+}
+
+/** An optional whole-number setting within [min, max], or its default when unset. */
+function wholeNumber(
+  env: Record<string, string | undefined>,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+  problems: string[],
+): number {
+  const raw = env[name]?.trim();
+  if (!raw) return fallback;
+  const value = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    problems.push(`${name} is not a whole number from ${min} to ${max}`);
+    return fallback;
+  }
+  return value;
 }
 
 function isHttpUrl(value: string): boolean {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DATABASE_FILE,
+  type NewDecision,
   MIGRATIONS,
   StoreError,
   migrate,
@@ -39,7 +40,7 @@ describe("the store", () => {
     expect(mode?.journal_mode).toBe("wal");
   });
 
-  test("migration 1 makes the decisions table", () => {
+  test("migrations 1 and 2 make the decisions table", () => {
     const { dir } = fresh();
     const db = new Database(join(dir, DATABASE_FILE), { readonly: true });
     const columns = db
@@ -59,6 +60,12 @@ describe("the store", () => {
       ["reserved_until", false],
       ["outcome", false],
       ["created_at", true],
+      ["policy", false],
+      ["no_decision_reason", false],
+      ["attempts_before", false],
+      ["reservation_refused", false],
+      ["outcome_by", false],
+      ["outcome_at", false],
     ]);
   });
 
@@ -134,5 +141,156 @@ describe("the store", () => {
     }
     expect(message).toContain("SUPERDISPATCH_DATA_DIR");
     expect(message).not.toContain(parent);
+  });
+});
+
+const T = (minute: number) =>
+  new Date(Date.UTC(2026, 10, 12, 12, minute)).toISOString();
+
+function decision(over: Partial<NewDecision> & { id: string }): NewDecision {
+  return {
+    boardId: "brd_a",
+    cardId: "card_a",
+    stageKey: "build",
+    policy: "p@1",
+    chosenAgent: "agt_a",
+    noDecisionReason: null,
+    candidates: [{ candidate: { agentId: "agt_a" } }],
+    attemptsBefore: 0,
+    createdAt: T(0),
+    ...over,
+  };
+}
+
+describe("boards", () => {
+  test("opting in, out and in again keeps one row and its first time", () => {
+    const { store } = fresh();
+    expect(store.getBoard("brd_a")).toBeNull();
+    expect(store.disableBoard("brd_a", T(0))).toBeNull();
+    expect(store.enableBoard("brd_a", T(1))).toEqual({
+      boardId: "brd_a",
+      enabled: true,
+      createdAt: T(1),
+      updatedAt: T(1),
+    });
+    expect(store.disableBoard("brd_a", T(2))?.enabled).toBe(false);
+    expect(store.enableBoard("brd_a", T(3))).toEqual({
+      boardId: "brd_a",
+      enabled: true,
+      createdAt: T(1),
+      updatedAt: T(3),
+    });
+    store.enableBoard("brd_0", T(4));
+    expect(store.listBoards().map((b) => b.boardId)).toEqual([
+      "brd_0",
+      "brd_a",
+    ]);
+  });
+});
+
+describe("decisions", () => {
+  test("a decision reads back as written, with its candidates", () => {
+    const { store } = fresh();
+    store.recordDecision(decision({ id: "pld_1", attemptsBefore: 2 }));
+    expect(store.getDecision("pld_1")).toEqual({
+      ...decision({ id: "pld_1", attemptsBefore: 2 }),
+      reservedUntil: null,
+      reservationRefused: null,
+      outcome: null,
+      outcomeBy: null,
+      outcomeAt: null,
+    });
+  });
+
+  test("only a granted, unsettled hold is open; a refused one is settled as not-reserved", () => {
+    const { store } = fresh();
+    store.recordDecision(decision({ id: "pld_1" }));
+    store.recordDecision(decision({ id: "pld_2" }));
+    store.recordDecision(
+      decision({
+        id: "pld_3",
+        chosenAgent: null,
+        noDecisionReason: "none-eligible",
+      }),
+    );
+    expect(store.openDecisions("brd_a")).toEqual([]);
+    store.setReservation("pld_1", { reservedUntil: T(1) }, T(0));
+    store.setReservation("pld_2", { refused: "AGENT_NOT_ELIGIBLE" }, T(0));
+    expect(store.openDecisions("brd_a").map((d) => d.id)).toEqual(["pld_1"]);
+    expect(store.getDecision("pld_2")).toMatchObject({
+      outcome: "not-reserved",
+      reservationRefused: "AGENT_NOT_ELIGIBLE",
+      outcomeAt: T(0),
+    });
+    expect(store.openDecisions("brd_b")).toEqual([]);
+  });
+
+  test("an outcome is settled once", () => {
+    const { store } = fresh();
+    store.recordDecision(decision({ id: "pld_1" }));
+    store.setReservation("pld_1", { reservedUntil: T(1) }, T(0));
+    expect(store.settle("pld_1", "claimed", "agt_a", T(1))).toBe(true);
+    expect(store.settle("pld_1", "expired", null, T(2))).toBe(false);
+    expect(store.getDecision("pld_1")).toMatchObject({
+      outcome: "claimed",
+      outcomeBy: "agt_a",
+      outcomeAt: T(1),
+    });
+    expect(store.openDecisions("brd_a")).toEqual([]);
+  });
+
+  test("decisions list newest first, by board and card, before a time, up to a limit", () => {
+    const { store } = fresh();
+    store.recordDecision(decision({ id: "pld_1", createdAt: T(1) }));
+    store.recordDecision(
+      decision({ id: "pld_2", createdAt: T(2), cardId: "card_b" }),
+    );
+    store.recordDecision(
+      decision({ id: "pld_3", createdAt: T(3), boardId: "brd_b" }),
+    );
+    const ids = (q: Parameters<typeof store.listDecisions>[0]) =>
+      store.listDecisions(q).map((d) => d.id);
+    expect(ids({ limit: 10 })).toEqual(["pld_3", "pld_2", "pld_1"]);
+    expect(ids({ boardId: "brd_a", limit: 10 })).toEqual(["pld_2", "pld_1"]);
+    expect(ids({ boardId: "brd_a", cardId: "card_a", limit: 10 })).toEqual([
+      "pld_1",
+    ]);
+    expect(ids({ before: T(3), limit: 1 })).toEqual(["pld_2"]);
+    expect(store.latestDecision("brd_a", "card_a")?.id).toBe("pld_1");
+    expect(store.latestDecision("brd_a", "card_z")).toBeNull();
+  });
+
+  test("history: claimed and lapsed holds per agent on a board; lapses on any board; live holds", () => {
+    const { store } = fresh();
+    const held = (
+      id: string,
+      agent: string,
+      until: number,
+      over: Partial<NewDecision> = {},
+    ) => {
+      store.recordDecision(decision({ id, chosenAgent: agent, ...over }));
+      store.setReservation(id, { reservedUntil: T(until) }, T(0));
+    };
+    held("pld_1", "agt_a", 1);
+    held("pld_2", "agt_a", 1);
+    held("pld_3", "agt_a", 1, { boardId: "brd_b" });
+    held("pld_4", "agt_b", 1);
+    held("pld_5", "agt_b", 9);
+    held("pld_6", "agt_c", 9);
+    store.settle("pld_1", "claimed", "agt_a", T(2));
+    store.settle("pld_2", "expired", null, T(3));
+    store.settle("pld_3", "expired", null, T(4));
+    // Neither another agent's claim nor a person's move counts for or against the chosen agent.
+    store.settle("pld_4", "claimed-by-other", "agt_z", T(2));
+    store.settle("pld_6", "superseded", null, T(2));
+    expect(store.boardHistory("brd_a")).toEqual(
+      new Map([["agt_a", { settled: 2, claimed: 1 }]]),
+    );
+    expect(store.noShowsSince(T(3))).toEqual(
+      new Map([["agt_a", [T(3), T(4)]]]),
+    );
+    expect(store.noShowsSince(T(4))).toEqual(new Map([["agt_a", [T(4)]]]));
+    expect(store.liveHolds(T(5))).toEqual(new Map([["agt_b", 1]]));
+    expect(store.liveHolds(T(9))).toEqual(new Map());
   });
 });

@@ -6,7 +6,8 @@ import { join, posix, relative, sep } from "node:path";
  * The service's layers, lowest first. A file belongs to the layer named by its first path
  * segment under `src/` (a folder, or a file without its extension). An import may stay inside
  * its own layer or point down this list, never up: the sources know no placement, placement
- * knows no route, and only `main` wires them together.
+ * knows no loop, the loop (which reads the sources, places and records) knows no route, and only
+ * `main` wires them together.
  *
  * `store` sits beside config at the bottom: it knows tables, and nothing above it may be reached
  * from it. A new top-level folder must be placed in this list before anything can live in it.
@@ -16,6 +17,7 @@ export const LAYERS = [
   "store",
   "sources",
   "placement",
+  "loop",
   "routes",
   "main",
 ] as const;
@@ -130,12 +132,16 @@ describe("architecture", () => {
         "placement/index.ts": 'export { x } from "../routes/index.ts";',
         "routes/index.ts": 'const m = await import("../main.ts");',
         "store/index.ts": 'import { x } from "../sources/index.ts";',
+        "loop/index.ts": 'import { handle } from "../routes/index.ts";',
+        "placement/a.ts": 'import { createLoop } from "../loop/index.ts";',
       }),
     ).toEqual([
       "sources/index.ts (sources) imports ../placement/index.ts (placement), a higher layer",
       "placement/index.ts (placement) imports ../routes/index.ts (routes), a higher layer",
       "routes/index.ts (routes) imports ../main.ts (main), a higher layer",
       "store/index.ts (store) imports ../sources/index.ts (sources), a higher layer",
+      "loop/index.ts (loop) imports ../routes/index.ts (routes), a higher layer",
+      "placement/a.ts (placement) imports ../loop/index.ts (loop), a higher layer",
     ]);
   });
 

@@ -1,13 +1,19 @@
 /**
  * Read-only clients of the products placement reads, each through its public API:
  *
- * - SuperPipeline: the ready cards, and the eligibility read for each (which agents may take it,
- *   and why the others may not);
- * - AgentPod: the roster, and each rostered agent's load and health;
- * - Accounts (the organization plane): this service's own token, from its service credential.
+ * - SuperPipeline (`superpipeline.ts`): a board's stages and cards, the eligibility read for a
+ *   card (which agents may take it, and why the others may not), and the reservation it holds for
+ *   the chosen agent;
+ * - AgentPod (`agentpod.ts`): a board's roster, with each station's readiness, its work in hand
+ *   and when it last took work;
+ * - Accounts, the organization plane (`accounts.ts`): this service's own token for each of them,
+ *   from its one service credential.
  *
- * They read, and never write: SuperDispatch owns none of this data. They turn what they read into
- * placement's inputs, and placement does no I/O of its own. Empty: the clients land with the
- * first placement.
+ * They read, and own nothing: SuperDispatch owns none of this data. The one write is the
+ * reservation, which SuperPipeline holds and lets lapse on its own. They hand the loop plain
+ * values; placement does no I/O of its own.
  */
-export {};
+export * from "./accounts.ts";
+export * from "./agentpod.ts";
+export * from "./http.ts";
+export * from "./superpipeline.ts";

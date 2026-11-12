@@ -38,7 +38,10 @@ describe("loadConfig", () => {
         secret: "credential-secret",
       },
       agentpodUrl: "https://hub.example",
+      agentpodAudience: "https://hub.example",
       relayDeliverySecret: "relay-secret-for-tests",
+      sweepSeconds: 30,
+      reservationSeconds: 60,
       dataDir: "/data",
       operatorTokenSha256: OPERATOR_TOKEN_SHA256,
     });
@@ -104,6 +107,38 @@ describe("loadConfig", () => {
     ).toBe("/var/lib/dispatch");
     expect(problems({ ...FULL, SUPERDISPATCH_DATA_DIR: "data" })).toEqual([
       "SUPERDISPATCH_DATA_DIR is not an absolute path",
+    ]);
+  });
+
+  test("takes AgentPod's audience apart from its URL, and refuses one that is not a URL", () => {
+    expect(
+      loadConfig({ ...FULL, AGENTPOD_AUDIENCE: "https://hub.public.example" })
+        .agentpodAudience,
+    ).toBe("https://hub.public.example");
+    expect(problems({ ...FULL, AGENTPOD_AUDIENCE: "hub" })).toEqual([
+      "AGENTPOD_AUDIENCE is not an http(s) URL",
+    ]);
+  });
+
+  test("takes the sweep and the reservation in seconds, within their ranges", () => {
+    const c = loadConfig({
+      ...FULL,
+      SUPERDISPATCH_SWEEP_SECONDS: "15",
+      SUPERDISPATCH_RESERVATION_SECONDS: "45",
+    });
+    expect([c.sweepSeconds, c.reservationSeconds]).toEqual([15, 45]);
+    expect(
+      problems({
+        ...FULL,
+        SUPERDISPATCH_SWEEP_SECONDS: "2",
+        SUPERDISPATCH_RESERVATION_SECONDS: "301",
+      }),
+    ).toEqual([
+      "SUPERDISPATCH_SWEEP_SECONDS is not a whole number from 5 to 3600",
+      "SUPERDISPATCH_RESERVATION_SECONDS is not a whole number from 10 to 300",
+    ]);
+    expect(problems({ ...FULL, SUPERDISPATCH_SWEEP_SECONDS: "1e3" })).toEqual([
+      "SUPERDISPATCH_SWEEP_SECONDS is not a whole number from 5 to 3600",
     ]);
   });
 
