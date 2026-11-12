@@ -187,9 +187,24 @@ describe("superpipeline", () => {
     expect(await client.board(BOARD)).toEqual({
       boardId: BOARD,
       stages: [
-        { key: "build", ownerKind: "capability", hasRequires: false },
-        { key: "review", ownerKind: null, hasRequires: true },
-        { key: "approve", ownerKind: "human", hasRequires: false },
+        {
+          key: "build",
+          ownerKind: "capability",
+          hasRequires: false,
+          requires: { all: ["code"], any: [] },
+        },
+        {
+          key: "review",
+          ownerKind: null,
+          hasRequires: true,
+          requires: { all: ["review"], any: [] },
+        },
+        {
+          key: "approve",
+          ownerKind: "human",
+          hasRequires: false,
+          requires: { all: [], any: [] },
+        },
       ],
       cards: [
         {

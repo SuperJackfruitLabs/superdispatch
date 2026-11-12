@@ -62,6 +62,21 @@ export const FAIRNESS = ["round-robin", "board-order"] as const;
 export type Fairness = (typeof FAIRNESS)[number];
 export const DEFAULT_FAIRNESS: Fairness = "round-robin";
 
+/**
+ * How often roster suggestions are computed, in seconds, when `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`
+ * is unset: 0 is on every sweep. They are read from the store alone, so a sweep's cost is one query.
+ */
+export const DEFAULT_SUGGEST_EVERY_SECONDS = 0;
+
+/** How far back roster suggestions read decisions when `SUPERDISPATCH_SUGGEST_WINDOW_HOURS` is unset. */
+export const DEFAULT_SUGGEST_WINDOW_HOURS = 24;
+
+/**
+ * How long a card waits with nobody eligible before its lane is suggested for (`stalled`), when
+ * `SUPERDISPATCH_STALL_MINUTES` is unset.
+ */
+export const DEFAULT_STALL_MINUTES = 30;
+
 export interface Config {
   port: number;
   /** SuperPipeline's API URL, and the audience of every assertion asked for it. */
@@ -88,6 +103,12 @@ export interface Config {
   topK: number;
   /** How a sweep orders cards across boards. */
   fairness: Fairness;
+  /** Seconds between two computations of the roster suggestions; 0 is every sweep. */
+  suggestEverySeconds: number;
+  /** Hours of decisions the roster suggestions read. */
+  suggestWindowHours: number;
+  /** Minutes a card waits with nobody eligible before its lane is suggested for. */
+  stallMinutes: number;
   /** The directory the store keeps its database in; absolute. */
   dataDir: string;
   /** The SHA-256 of the operator's bearer token, 64 lowercase hex digits. */
@@ -216,6 +237,31 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       );
   }
 
+  const suggestEverySeconds = wholeNumber(
+    env,
+    "SUPERDISPATCH_SUGGEST_EVERY_SECONDS",
+    DEFAULT_SUGGEST_EVERY_SECONDS,
+    0,
+    86400,
+    problems,
+  );
+  const suggestWindowHours = wholeNumber(
+    env,
+    "SUPERDISPATCH_SUGGEST_WINDOW_HOURS",
+    DEFAULT_SUGGEST_WINDOW_HOURS,
+    1,
+    720,
+    problems,
+  );
+  const stallMinutes = wholeNumber(
+    env,
+    "SUPERDISPATCH_STALL_MINUTES",
+    DEFAULT_STALL_MINUTES,
+    1,
+    1440,
+    problems,
+  );
+
   if (problems.length > 0) throw new ConfigError(problems);
   return {
     port,
@@ -233,6 +279,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     runnerUpSeconds,
     topK,
     fairness,
+    suggestEverySeconds,
+    suggestWindowHours,
+    stallMinutes,
     dataDir,
     operatorTokenSha256,
   };

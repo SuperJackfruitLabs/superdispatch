@@ -40,6 +40,12 @@ export interface StageView {
   ownerKind: string | null;
   /** The stage's `requires` is set: a capability lane even with no `ownerKind`. */
   hasRequires: boolean;
+  /**
+   * The capabilities the lane asks for, as SuperPipeline's claim matches them: every one of `all`
+   * and, when `any` is set, one of `any`. A stage without `requires` asks for its `owner`
+   * capability. Both empty when the stage asks for none.
+   */
+  requires: { all: string[]; any: string[] };
 }
 
 /** A card, as far as placement reads it. */
@@ -105,12 +111,19 @@ function stageOf(raw: unknown): StageView | null {
   const key = str(field(raw, "key"));
   if (key === null) return null;
   const requires = field(raw, "requires");
+  const all = strings(field(requires, "all"));
+  const any = strings(field(requires, "any"));
+  const ownerKind = str(field(raw, "ownerKind"));
+  const hasRequires = all.length > 0 || any.length > 0;
+  const owner = str(field(raw, "owner"));
   return {
     key,
-    ownerKind: str(field(raw, "ownerKind")),
-    hasRequires:
-      strings(field(requires, "all")).length > 0 ||
-      strings(field(requires, "any")).length > 0,
+    ownerKind,
+    hasRequires,
+    requires:
+      !hasRequires && ownerKind === "capability" && owner !== null
+        ? { all: [owner], any: [] }
+        : { all, any },
   };
 }
 

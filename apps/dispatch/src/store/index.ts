@@ -2,7 +2,7 @@
  * The service's own store: one SQLite database (`bun:sqlite`, WAL) in the data directory. It
  * holds what SuperDispatch alone knows: its placement decisions, each with every candidate it
  * considered, what each filter said about it and the score that ranked the rest, the reservation
- * it asked for and what became of the card. It holds nothing another product owns: cards stay in
+ * it asked for and what became of the card; and its roster suggestions, advice for a person. It holds nothing another product owns: cards stay in
  * SuperPipeline, the roster in AgentPod.
  *
  * The lowest layer beside config: it knows tables, not boards and not placement's rules. Its
@@ -69,7 +69,63 @@ export const MIGRATIONS: readonly string[] = [
    CREATE INDEX decisions_open ON decisions (board_id)
      WHERE outcome IS NULL AND (reserved_until IS NOT NULL OR tier = 'any-match');
    CREATE INDEX decisions_ladder ON decisions (board_id, card_id, stage_key, attempts_before);`,
+  // Roster suggestions (advice for a person; SuperDispatch never edits a roster). A decision
+  // records the capability its stage asked for (`requires`, JSON `{all, any}`), so a suggestion can
+  // name it. One suggestion per kind, board and stage: `body` is JSON (capability, rostered agents,
+  // candidates, reasons, reason), `evidence` the JSON list of decision ids that bear it out and
+  // `evidence_count` how many there were. `resolved_at` is set when a computation no longer finds
+  // it, `dismissed_at` when the operator dismissed it; seen again after it resolved, it opens anew.
+  `ALTER TABLE decisions ADD COLUMN requires TEXT;
+   CREATE TABLE suggestions (
+     id TEXT PRIMARY KEY,
+     kind TEXT NOT NULL,
+     board_id TEXT NOT NULL,
+     stage_key TEXT NOT NULL,
+     body TEXT NOT NULL,
+     evidence TEXT NOT NULL,
+     evidence_count INTEGER NOT NULL,
+     first_seen_at TEXT NOT NULL,
+     last_seen_at TEXT NOT NULL,
+     resolved_at TEXT,
+     dismissed_at TEXT,
+     UNIQUE (kind, board_id, stage_key)
+   );`,
 ];
+
+/** Which suggestions a listing reads: open (not resolved, not dismissed) when unset. */
+export const SUGGESTION_STATES = [
+  "open",
+  "dismissed",
+  "resolved",
+  "all",
+] as const;
+export type SuggestionState = (typeof SUGGESTION_STATES)[number];
+
+/** A suggestion as a computation found it. `body` is placement's record, kept as JSON. */
+export interface FoundSuggestion {
+  kind: string;
+  boardId: string;
+  stageKey: string;
+  body: unknown;
+  evidence: string[];
+  evidenceCount: number;
+}
+
+/** A suggestion as it is read back. */
+export interface SuggestionRow extends FoundSuggestion {
+  id: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+  dismissedAt: string | null;
+}
+
+/** What one sync changed. */
+export interface SuggestionSync {
+  opened: number;
+  updated: number;
+  resolved: number;
+}
 
 /** What became of a card a decision was about. */
 export const OUTCOMES = [
@@ -108,6 +164,8 @@ export interface NewDecision {
   /** The tier it was made in, and its step on the card's ladder; null on rows older than tiers. */
   tier: string | null;
   tierStep: number | null;
+  /** The capability the stage asked for (`{all, any}`); null when unknown. */
+  requires?: unknown;
   createdAt: string;
 }
 
@@ -187,6 +245,28 @@ export interface Store {
   noShowsSince(since: string): Map<string, string[]>;
   /** Per agent: the holds still live at `at` (granted, unsettled, not lapsed), on any board. */
   liveHolds(at: string): Map<string, number>;
+  /** The decisions made at or after `since`, newest first, at most `limit`. */
+  decisionsSince(since: string, limit: number): DecisionRow[];
+
+  /**
+   * Bring the suggestions in line with one computation, in one transaction: each found one is
+   * opened (new, or seen again after it resolved: a dismissal does not carry over) or updated (its
+   * body, evidence and last seen; a dismissal stays), and each open one not found is resolved.
+   * `newId` names a new row.
+   */
+  syncSuggestions(
+    found: readonly FoundSuggestion[],
+    at: string,
+    newId: () => string,
+  ): SuggestionSync;
+  /** Newest seen first, optionally for one board, in one state (`open` when unset). */
+  listSuggestions(query: {
+    boardId?: string;
+    state?: SuggestionState;
+  }): SuggestionRow[];
+  getSuggestion(id: string): SuggestionRow | null;
+  /** Dismiss it, once: a dismissed one keeps its first dismissal. Null when there is none. */
+  dismissSuggestion(id: string, at: string): SuggestionRow | null;
 }
 
 /** Open (creating if need be) the store in `dataDir`, and bring its schema up to date. */
@@ -239,6 +319,7 @@ interface DecisionSql {
   attempts_before: number | null;
   tier: string | null;
   tier_step: number | null;
+  requires: string | null;
   reserved_until: string | null;
   reservation_refused: string | null;
   outcome: string | null;
@@ -266,6 +347,7 @@ const decisionOf = (r: DecisionSql): DecisionRow => ({
   attemptsBefore: r.attempts_before ?? 0,
   tier: r.tier,
   tierStep: r.tier_step,
+  requires: r.requires === null ? null : (JSON.parse(r.requires) as unknown),
   createdAt: r.created_at,
   reservedUntil: r.reserved_until,
   reservationRefused: r.reservation_refused,
@@ -276,7 +358,48 @@ const decisionOf = (r: DecisionSql): DecisionRow => ({
   outcomeAt: r.outcome_at,
 });
 
+interface SuggestionSql {
+  id: string;
+  kind: string;
+  board_id: string;
+  stage_key: string;
+  body: string;
+  evidence: string;
+  evidence_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+  dismissed_at: string | null;
+}
+
+const suggestionOf = (r: SuggestionSql): SuggestionRow => ({
+  id: r.id,
+  kind: r.kind,
+  boardId: r.board_id,
+  stageKey: r.stage_key,
+  body: JSON.parse(r.body) as unknown,
+  evidence: JSON.parse(r.evidence) as string[],
+  evidenceCount: r.evidence_count,
+  firstSeenAt: r.first_seen_at,
+  lastSeenAt: r.last_seen_at,
+  resolvedAt: r.resolved_at,
+  dismissedAt: r.dismissed_at,
+});
+
+const SUGGESTION_WHERE: Record<SuggestionState, string> = {
+  open: "resolved_at IS NULL AND dismissed_at IS NULL",
+  dismissed: "resolved_at IS NULL AND dismissed_at IS NOT NULL",
+  resolved: "resolved_at IS NOT NULL",
+  all: "1 = 1",
+};
+
 function storeOver(db: Database): Store {
+  const getSuggestion = (id: string): SuggestionRow | null => {
+    const row = db
+      .query<SuggestionSql, [string]>("SELECT * FROM suggestions WHERE id = ?")
+      .get(id);
+    return row ? suggestionOf(row) : null;
+  };
   const getBoard = (boardId: string): Board | null => {
     const row = db
       .query<BoardSql, [string]>("SELECT * FROM boards WHERE board_id = ?")
@@ -317,8 +440,8 @@ function storeOver(db: Database): Store {
     recordDecision(d) {
       db.query(
         `INSERT INTO decisions (id, board_id, card_id, stage_key, policy, chosen_agent,
-           no_decision_reason, candidates, attempts_before, tier, tier_step, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           no_decision_reason, candidates, attempts_before, tier, tier_step, requires, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         d.id,
         d.boardId,
@@ -331,6 +454,9 @@ function storeOver(db: Database): Store {
         d.attemptsBefore,
         d.tier,
         d.tierStep,
+        d.requires === undefined || d.requires === null
+          ? null
+          : JSON.stringify(d.requires),
         d.createdAt,
       );
     },
@@ -445,6 +571,105 @@ function storeOver(db: Database): Store {
         )
         .all(at);
       return new Map(rows.map((r) => [r.agent, r.n]));
+    },
+    decisionsSince: (since, limit) =>
+      db
+        .query<DecisionSql, [string]>(
+          `SELECT * FROM decisions WHERE created_at >= ?
+           ORDER BY created_at DESC, rowid DESC LIMIT ${Math.max(1, Math.floor(limit))}`,
+        )
+        .all(since)
+        .map(decisionOf),
+
+    syncSuggestions(found, at, newId) {
+      const sync: SuggestionSync = { opened: 0, updated: 0, resolved: 0 };
+      db.transaction(() => {
+        const seen = new Set<string>();
+        for (const f of found) {
+          const key = `${f.kind}\u0000${f.boardId}\u0000${f.stageKey}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const body = JSON.stringify(f.body);
+          const evidence = JSON.stringify(f.evidence);
+          const row = db
+            .query<
+              SuggestionSql,
+              [string, string, string]
+            >("SELECT * FROM suggestions WHERE kind = ? AND board_id = ? AND stage_key = ?")
+            .get(f.kind, f.boardId, f.stageKey);
+          if (row === null) {
+            db.query(
+              `INSERT INTO suggestions (id, kind, board_id, stage_key, body, evidence,
+                 evidence_count, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ).run(
+              newId(),
+              f.kind,
+              f.boardId,
+              f.stageKey,
+              body,
+              evidence,
+              f.evidenceCount,
+              at,
+              at,
+            );
+            sync.opened++;
+          } else if (row.resolved_at !== null) {
+            db.query(
+              `UPDATE suggestions SET body = ?, evidence = ?, evidence_count = ?,
+                 first_seen_at = ?, last_seen_at = ?, resolved_at = NULL, dismissed_at = NULL
+               WHERE id = ?`,
+            ).run(body, evidence, f.evidenceCount, at, at, row.id);
+            sync.opened++;
+          } else {
+            db.query(
+              `UPDATE suggestions SET body = ?, evidence = ?, evidence_count = ?, last_seen_at = ?
+               WHERE id = ?`,
+            ).run(body, evidence, f.evidenceCount, at, row.id);
+            sync.updated++;
+          }
+        }
+        const open = db
+          .query<
+            SuggestionSql,
+            []
+          >("SELECT * FROM suggestions WHERE resolved_at IS NULL")
+          .all();
+        for (const row of open) {
+          if (
+            seen.has(`${row.kind}\u0000${row.board_id}\u0000${row.stage_key}`)
+          )
+            continue;
+          db.query("UPDATE suggestions SET resolved_at = ? WHERE id = ?").run(
+            at,
+            row.id,
+          );
+          sync.resolved++;
+        }
+      })();
+      return sync;
+    },
+    listSuggestions({ boardId, state }) {
+      const where = [SUGGESTION_WHERE[state ?? "open"]];
+      const args: string[] = [];
+      if (boardId !== undefined) {
+        where.push("board_id = ?");
+        args.push(boardId);
+      }
+      return db
+        .query<SuggestionSql, string[]>(
+          `SELECT * FROM suggestions WHERE ${where.join(" AND ")}
+           ORDER BY last_seen_at DESC, board_id, stage_key, kind`,
+        )
+        .all(...args)
+        .map(suggestionOf);
+    },
+    getSuggestion,
+    dismissSuggestion(id, at) {
+      db.query(
+        "UPDATE suggestions SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL",
+      ).run(at, id);
+      return getSuggestion(id);
     },
   };
 }

@@ -40,9 +40,21 @@
  * Publishing each decision as an event through treaty's relay (charter decision 6) is a later
  * slice: it needs a decision event in treaty's catalogue first. Until then the record is read on
  * the operator API (`GET /v1/decisions`).
+ *
+ * **Roster suggestions** (`refreshSuggestions`): after a sweep, when due, the decisions of the
+ * window on the enabled boards go through placement's `suggest`, and the store's suggestions are
+ * brought in line. Advice only (charter decision 8): it reads the store and writes the store, and
+ * its deps hold no source, so it cannot reach another product. A person makes any roster change.
+ * Publishing suggestions to chat is a later slice; until then they are read on the operator API
+ * (`GET /v1/suggestions`).
  */
 import type { Fairness } from "../config.ts";
-import type { Outcome, Store, DecisionRow } from "../store/index.ts";
+import type {
+  Outcome,
+  Store,
+  DecisionRow,
+  SuggestionSync,
+} from "../store/index.ts";
 import {
   SourceError,
   type Agentpod,
@@ -51,13 +63,18 @@ import {
   type RosterEntry,
   type Superpipeline,
 } from "../sources/index.ts";
+import { randomBytes } from "node:crypto";
 import {
+  DEFAULT_STALL_AFTER_MS,
   DEFAULT_TIERS,
   NO_SHOW_WINDOW_MS,
   POLICY,
   boardOrder,
+  candidateRecords,
   fairOrder,
   place,
+  suggest,
+  type Capability,
   type CandidateFacts,
   type Decision,
   type Ladder,
@@ -70,6 +87,91 @@ export const REDECIDE_AFTER_MS = 5 * 60 * 1000;
 /** The most cards one pass looks at on one board: the rest wait for the next pass. */
 export const MAX_CARDS_PER_PASS = 20;
 
+/** The most decisions one computation of the roster suggestions reads, newest first. */
+export const MAX_SUGGESTION_DECISIONS = 5000;
+
+/** When and over what the roster suggestions are computed. */
+export interface SuggestionSettings {
+  /** The least time between two computations; 0 computes after every sweep. */
+  everyMs: number;
+  /** How far back the decisions they read go. */
+  windowMs: number;
+  /** How long a card waits with nobody eligible before its lane is flagged. */
+  stallAfterMs: number;
+}
+
+export const DEFAULT_SUGGESTIONS: SuggestionSettings = {
+  everyMs: 0,
+  windowMs: 24 * 3600 * 1000,
+  stallAfterMs: DEFAULT_STALL_AFTER_MS,
+};
+
+/** A new suggestion id: `sug_` and 24 hex digits. */
+export const newSuggestionId = () => `sug_${randomBytes(12).toString("hex")}`;
+
+/**
+ * Compute the roster suggestions from the store's decisions and bring the store's suggestions in
+ * line. Its deps are the store alone: it reads no product and writes none, so it can propose a
+ * roster change and never make one.
+ */
+export function refreshSuggestions(deps: {
+  store: Pick<Store, "listBoards" | "decisionsSince" | "syncSuggestions">;
+  nowMs: number;
+  settings?: SuggestionSettings;
+  newId?: () => string;
+}): SuggestionSync {
+  const settings = deps.settings ?? DEFAULT_SUGGESTIONS;
+  const enabled = new Set(
+    deps.store
+      .listBoards()
+      .filter((b) => b.enabled)
+      .map((b) => b.boardId),
+  );
+  const rows = deps.store
+    .decisionsSince(
+      new Date(deps.nowMs - settings.windowMs).toISOString(),
+      MAX_SUGGESTION_DECISIONS,
+    )
+    .filter((d) => enabled.has(d.boardId));
+  const found = suggest({
+    decisions: rows.map((d) => ({
+      id: d.id,
+      boardId: d.boardId,
+      cardId: d.cardId,
+      stageKey: d.stageKey,
+      attemptsBefore: d.attemptsBefore,
+      requires: capabilityOf(d.requires),
+      noDecisionReason: d.noDecisionReason,
+      candidates: candidateRecords(d.candidates),
+      createdAtMs: Date.parse(d.createdAt),
+    })),
+    settings: { stallAfterMs: settings.stallAfterMs },
+  });
+  return deps.store.syncSuggestions(
+    found.map(
+      ({ kind, boardId, stageKey, evidence, evidenceCount, ...body }) => ({
+        kind,
+        boardId,
+        stageKey,
+        body,
+        evidence: [...evidence],
+        evidenceCount,
+      }),
+    ),
+    new Date(deps.nowMs).toISOString(),
+    deps.newId ?? newSuggestionId,
+  );
+}
+
+/** A recorded `requires`, or null when it is not one. */
+function capabilityOf(json: unknown): Capability | null {
+  if (typeof json !== "object" || json === null) return null;
+  const { all, any } = json as Record<string, unknown>;
+  const strings = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  return { all: strings(all), any: strings(any) };
+}
+
 export interface LoopDeps {
   store: Store;
   superpipeline: Superpipeline;
@@ -78,6 +180,10 @@ export interface LoopDeps {
   tiers?: TierSettings;
   /** How a sweep orders cards across boards; `round-robin` when unset. */
   fairness?: Fairness;
+  /** When the roster suggestions are computed; `DEFAULT_SUGGESTIONS` when unset. */
+  suggestions?: SuggestionSettings;
+  /** A new suggestion id; `sug_` and random hex when unset. */
+  newSuggestionId?: () => string;
   now: () => number;
   /** A new decision id: `pld_` and hex. */
   newId: () => string;
@@ -104,8 +210,13 @@ export interface PassResult {
 export interface Loop {
   /** One pass over one board. Throws when the board cannot be read. */
   passBoard(boardId: string): Promise<BoardPass>;
-  /** One pass over every enabled board; a board that fails is counted, not thrown. */
+  /**
+   * One pass over every enabled board; a board that fails is counted, not thrown. Then, when due,
+   * the roster suggestions are computed.
+   */
   passAll(): Promise<PassResult>;
+  /** Compute the roster suggestions now, from the store alone. */
+  suggest(): SuggestionSync;
 }
 
 /** Cards waiting to be claimed in a lane an agent may claim from, with no live hold. Best first. */
@@ -201,6 +312,8 @@ interface Gathered {
   cards: CardView[];
   rosterByPrincipal: Map<string, RosterEntry>;
   history: ReturnType<Store["boardHistory"]>;
+  /** What each stage of the board asks for, by key. */
+  requires: Map<string, Capability>;
 }
 
 export function createLoop(deps: LoopDeps): Loop {
@@ -225,6 +338,7 @@ export function createLoop(deps: LoopDeps): Loop {
       cards: [],
       rosterByPrincipal: new Map(),
       history: new Map(),
+      requires: new Map(board.stages.map((st) => [st.key, st.requires])),
     };
 
     const cards = new Map(board.cards.map((c) => [c.id, c]));
@@ -393,6 +507,7 @@ export function createLoop(deps: LoopDeps): Loop {
       attemptsBefore: card.attemptCount,
       tier: decision.tier.name,
       tierStep: decision.tier.step,
+      requires: g.requires.get(card.stageKey) ?? null,
       createdAt: at.nowIso,
     });
     g.pass.decided++;
@@ -444,7 +559,26 @@ export function createLoop(deps: LoopDeps): Loop {
     return false;
   }
 
+  const suggestions = deps.suggestions ?? DEFAULT_SUGGESTIONS;
+  let suggestedAtMs: number | null = null;
+  function computeSuggestions(): SuggestionSync {
+    const nowMs = deps.now();
+    suggestedAtMs = nowMs;
+    const sync = refreshSuggestions({
+      store,
+      nowMs,
+      settings: suggestions,
+      ...(deps.newSuggestionId ? { newId: deps.newSuggestionId } : {}),
+    });
+    if (sync.opened + sync.resolved > 0)
+      log(
+        `loop: suggestions ${sync.opened} opened, ${sync.updated} updated, ${sync.resolved} resolved`,
+      );
+    return sync;
+  }
+
   return {
+    suggest: computeSuggestions,
     async passBoard(boardId) {
       const [pass] = await passBoards([boardId], (_id, error) => {
         throw error;
@@ -461,6 +595,18 @@ export function createLoop(deps: LoopDeps): Loop {
           log(`loop: ${boardId} unread (${describe(error)})`);
         },
       );
+      if (
+        suggestedAtMs === null ||
+        deps.now() - suggestedAtMs >= suggestions.everyMs
+      ) {
+        try {
+          computeSuggestions();
+        } catch (error) {
+          log(
+            `loop: suggestions failed (${error instanceof Error ? error.name : "error"})`,
+          );
+        }
+      }
       return { boards: boards.length, failedBoards };
     },
   };

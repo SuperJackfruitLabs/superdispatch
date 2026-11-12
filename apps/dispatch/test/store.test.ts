@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DATABASE_FILE,
+  type FoundSuggestion,
   type NewDecision,
   MIGRATIONS,
   StoreError,
@@ -40,7 +41,7 @@ describe("the store", () => {
     expect(mode?.journal_mode).toBe("wal");
   });
 
-  test("migrations 1 to 3 make the decisions table", () => {
+  test("migrations 1 to 4 make the decisions table", () => {
     const { dir } = fresh();
     const db = new Database(join(dir, DATABASE_FILE), { readonly: true });
     const columns = db
@@ -68,6 +69,7 @@ describe("the store", () => {
       ["outcome_at", false],
       ["tier", false],
       ["tier_step", false],
+      ["requires", false],
     ]);
   });
 
@@ -161,6 +163,7 @@ function decision(over: Partial<NewDecision> & { id: string }): NewDecision {
     attemptsBefore: 0,
     tier: "winner",
     tierStep: 1,
+    requires: { all: ["code"], any: [] },
     createdAt: T(0),
     ...over,
   };
@@ -363,5 +366,140 @@ describe("decisions", () => {
     expect(store.noShowsSince(T(4))).toEqual(new Map([["agt_a", [T(4)]]]));
     expect(store.liveHolds(T(5))).toEqual(new Map([["agt_b", 1]]));
     expect(store.liveHolds(T(9))).toEqual(new Map());
+  });
+});
+
+describe("decisions since", () => {
+  test("the decisions at or after a time, newest first, up to a limit; requires reads back, or null", () => {
+    const { store } = fresh();
+    store.recordDecision(decision({ id: "pld_1", createdAt: T(0) }));
+    store.recordDecision(
+      decision({ id: "pld_2", createdAt: T(5), requires: null }),
+    );
+    store.recordDecision(decision({ id: "pld_3", createdAt: T(9) }));
+    expect(store.decisionsSince(T(5), 10).map((d) => d.id)).toEqual([
+      "pld_3",
+      "pld_2",
+    ]);
+    expect(store.decisionsSince(T(0), 1).map((d) => d.id)).toEqual(["pld_3"]);
+    expect(store.getDecision("pld_2")?.requires).toBeNull();
+    expect(store.getDecision("pld_3")?.requires).toEqual({
+      all: ["code"],
+      any: [],
+    });
+  });
+});
+
+describe("suggestions", () => {
+  const found = (over: Partial<FoundSuggestion> = {}): FoundSuggestion => ({
+    kind: "add-agent-to-board",
+    boardId: "brd_a",
+    stageKey: "build",
+    body: { reasons: ["one-candidate"], candidates: [{ agentId: "agt_x" }] },
+    evidence: ["pld_1"],
+    evidenceCount: 1,
+    ...over,
+  });
+  const ids = () => {
+    let n = 0;
+    return () => `sug_${String(++n).padStart(24, "0")}`;
+  };
+
+  test("one row per kind, board and stage: opened, then updated with first seen kept", () => {
+    const { store } = fresh();
+    const newId = ids();
+    expect(store.syncSuggestions([found(), found()], T(0), newId)).toEqual({
+      opened: 1,
+      updated: 0,
+      resolved: 0,
+    });
+    expect(
+      store.syncSuggestions(
+        [found({ evidence: ["pld_1", "pld_2"], evidenceCount: 2 })],
+        T(5),
+        newId,
+      ),
+    ).toEqual({ opened: 0, updated: 1, resolved: 0 });
+    expect(store.listSuggestions({})).toEqual([
+      {
+        id: "sug_000000000000000000000001",
+        kind: "add-agent-to-board",
+        boardId: "brd_a",
+        stageKey: "build",
+        body: found().body,
+        evidence: ["pld_1", "pld_2"],
+        evidenceCount: 2,
+        firstSeenAt: T(0),
+        lastSeenAt: T(5),
+        resolvedAt: null,
+        dismissedAt: null,
+      },
+    ]);
+    // Another kind on the same lane, or another stage, is its own row.
+    store.syncSuggestions(
+      [found(), found({ kind: "lane-single-point" }), found({ stageKey: "x" })],
+      T(6),
+      newId,
+    );
+    expect(store.listSuggestions({ state: "all" })).toHaveLength(3);
+  });
+
+  test("one not found again is resolved; found after that, it opens anew without its dismissal", () => {
+    const { store } = fresh();
+    const newId = ids();
+    store.syncSuggestions([found()], T(0), newId);
+    const [row] = store.listSuggestions({});
+    expect(store.dismissSuggestion(row!.id, T(1))?.dismissedAt).toBe(T(1));
+    // Seen again while dismissed: updated, and still dismissed.
+    store.syncSuggestions([found()], T(2), newId);
+    expect(store.listSuggestions({})).toEqual([]);
+    expect(store.listSuggestions({ state: "dismissed" })).toHaveLength(1);
+    expect(store.syncSuggestions([], T(3), newId)).toEqual({
+      opened: 0,
+      updated: 0,
+      resolved: 1,
+    });
+    expect(store.listSuggestions({ state: "resolved" })[0]?.resolvedAt).toBe(
+      T(3),
+    );
+    expect(store.syncSuggestions([found()], T(4), newId)).toEqual({
+      opened: 1,
+      updated: 0,
+      resolved: 0,
+    });
+    expect(store.listSuggestions({})).toMatchObject([
+      {
+        id: row!.id,
+        firstSeenAt: T(4),
+        resolvedAt: null,
+        dismissedAt: null,
+      },
+    ]);
+  });
+
+  test("every open one not found is resolved, and only those", () => {
+    const { store } = fresh();
+    const newId = ids();
+    store.syncSuggestions(
+      [found(), found({ stageKey: "x" }), found({ stageKey: "y" })],
+      T(0),
+      newId,
+    );
+    expect(
+      store.syncSuggestions([found({ stageKey: "y" })], T(1), newId),
+    ).toEqual({ opened: 0, updated: 1, resolved: 2 });
+    expect(store.listSuggestions({}).map((s) => s.stageKey)).toEqual(["y"]);
+  });
+
+  test("a dismissal is kept once made; an unknown id is null; listings filter by board", () => {
+    const { store } = fresh();
+    const newId = ids();
+    store.syncSuggestions([found(), found({ boardId: "brd_b" })], T(0), newId);
+    const id = store.listSuggestions({ boardId: "brd_b" })[0]!.id;
+    expect(store.listSuggestions({ boardId: "brd_b" })).toHaveLength(1);
+    store.dismissSuggestion(id, T(1));
+    expect(store.dismissSuggestion(id, T(2))?.dismissedAt).toBe(T(1));
+    expect(store.dismissSuggestion("sug_nope", T(2))).toBeNull();
+    expect(store.listSuggestions({}).map((s) => s.boardId)).toEqual(["brd_a"]);
   });
 });

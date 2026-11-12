@@ -150,6 +150,13 @@ export interface CandidateRecord {
   readonly candidate: Candidate;
   readonly filters: readonly FilterResult[];
   readonly score: Score | null;
+  /**
+   * Set only for an agent off the roster: whether it has the capability the lane asks for, by
+   * SuperPipeline's verdict (no `capability_mismatch`). It is not a filter: it says whether adding
+   * the agent to the board's roster would give the lane another candidate, which is what a roster
+   * suggestion (`suggest`) proposes.
+   */
+  readonly capable?: boolean;
 }
 
 /** The card a decision is about. */
@@ -424,6 +431,9 @@ export function place(input: PlacementInput): Decision {
     },
     filters,
     score: scores.get(facts.agentId) ?? null,
+    ...(filters.some((r) => r.filter === "roster" && !r.passed)
+      ? { capable: !facts.pipeline.reasons.includes("capability_mismatch") }
+      : {}),
   }));
 
   const rostered = filtered.filter(({ filters }) =>
@@ -599,3 +609,5 @@ function scoreIsFinite(score: Score): boolean {
     Object.values(score.terms).every((term) => Number.isFinite(term))
   );
 }
+
+export * from "./suggest.ts";
