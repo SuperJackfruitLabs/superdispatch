@@ -36,7 +36,8 @@
  *   one agent there is no choice to make, and pull already gives it the card. Otherwise the best
  *   eligible candidate is chosen. When none is eligible only because the free ones are holding
  *   other cards, the card waits for a later pass (`waiting-on-holds`) rather than give up its
- *   tier; otherwise it is `none-eligible` in the winner tier and `any-match` after it.
+ *   tier, and likewise when a candidate fails only for its load: work in hand, its concurrency,
+ *   its station busy (`waiting-on-load`); otherwise it is `none-eligible` in the winner tier and `any-match` after it.
  * - **Fairness across boards** (`fairOrder`): one sweep places the ready cards of every opted-in
  *   board in rounds, one card from each board a round, the longest-waiting first within a round,
  *   so a busy board cannot take every free agent before a quiet board's card is looked at.
@@ -179,6 +180,14 @@ export type NoDecisionReason =
    * card: the card waits for a later pass, and the loop records nothing.
    */
   | "waiting-on-holds"
+  /**
+   * Nobody is eligible, but an agent not yet passed over fails only for its load: it has work in
+   * hand (not idle, at its board's concurrency, or not ready because its station is busy) or
+   * holds another card. Load passes on its own, so the card waits for a later pass and the loop
+   * records nothing, rather than record `none-eligible` and look away for the redecide window
+   * while the agent frees up and pulls the card unplaced.
+   */
+  | "waiting-on-load"
   /** The tiers are spent, or a runner-up step has nobody left: nothing is held, pull decides. */
   | "any-match";
 
@@ -447,6 +456,8 @@ export function place(input: PlacementInput): Decision {
     // Free agents exist but hold other cards for now: wait, keeping the tier, rather than give up.
     if (filtered.some(({ filters }) => onlyHeld(filters)))
       return none("waiting-on-holds", records);
+    if (filtered.some(({ facts, filters }) => onlyLoad(facts, filters)))
+      return none("waiting-on-load", records);
     if (tier.name === "runner-up")
       return none("any-match", records, {
         ...tier,
@@ -468,6 +479,33 @@ export function place(input: PlacementInput): Decision {
 function onlyHeld(filters: readonly FilterResult[]): boolean {
   const failed = filters.filter((r) => !r.passed);
   return failed.length === 1 && failed[0]?.filter === "held";
+}
+
+/** The filters a candidate fails for its load alone: what passes once its work in hand is done. */
+const LOAD_FILTERS: ReadonlySet<FilterName> = new Set<FilterName>([
+  "capacity",
+  "idle",
+  "held",
+]);
+
+/**
+ * Did a candidate fail only for its load? `health` counts as load only while the station is busy:
+ * a bridge at its concurrency answers not ready, and that passes with the work; a station that is
+ * not ready while idle is unhealthy, and is not waited for.
+ */
+function onlyLoad(
+  facts: CandidateFacts,
+  filters: readonly FilterResult[],
+): boolean {
+  const failed = filters.filter((r) => !r.passed);
+  return (
+    failed.length > 0 &&
+    failed.every(
+      (r) =>
+        LOAD_FILTERS.has(r.filter) ||
+        (r.filter === "health" && facts.roster?.busy === true),
+    )
+  );
 }
 
 /** A card waiting in a board's queue, with when it has waited since. */

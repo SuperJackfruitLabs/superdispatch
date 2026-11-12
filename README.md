@@ -37,8 +37,11 @@ events, for that board) it:
      then least recently used;
    - with two or more rostered candidates, **chooses** the best and asks SuperPipeline to hold
      the card for it for the tier's window; with one there is no choice, and pull already gives
-     it the card (`one-candidate`). When the only free candidates hold other cards, the card
-     waits for a later pass and nothing is recorded;
+     it the card (`one-candidate`). When the only free candidates hold other cards, or every
+     candidate it could wait for fails only for its load (work in hand, its concurrency, a
+     station not ready because it is busy), the card waits for a later pass and nothing is
+     recorded, so it is held for the first agent to free up rather than looked away from for
+     five minutes while that agent pulls it unplaced;
 4. records the decision: the card, the policy, the tier and step, every candidate with each
    filter's result and the score that ranked it, the hold and, on a later pass, the outcome. A
    settled decision is a labelled example.

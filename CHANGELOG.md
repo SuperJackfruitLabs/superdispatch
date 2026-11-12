@@ -30,6 +30,10 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
   edits a roster: a person makes the change. Settings: `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`,
   `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`, `SUPERDISPATCH_STALL_MINUTES`. Each decision now records
   the capability its stage asked for, and whether each agent off the roster has it.
+- A card whose candidates are all busy waits for the next pass instead of being recorded
+  `none-eligible` and left alone for five minutes (`waiting-on-load`). Before, on a board where
+  every agent had work in hand, a freed agent pulled the next card before SuperDispatch looked
+  again, so nothing on a loaded board was ever placed.
 - A sweep of every opted-in board every 30 seconds, and a look at a board as soon as the event
   relay delivers one of its events.
 - The operator API: opt a board in or out (`/v1/boards`), and read the decisions

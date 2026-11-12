@@ -30,7 +30,8 @@
  *
  * A card whose last decision chose nobody, or whose hold was refused, is not decided again for
  * `REDECIDE_AFTER_MS`, so a card nobody can take is not re-recorded every sweep. A card waiting
- * only on agents that hold other cards is not recorded at all: it is looked at again next pass.
+ * only on agents that hold other cards, or only on agents whose work in hand keeps them busy, is
+ * not recorded at all: it is looked at again next pass, so it is placed as soon as one frees up.
  *
  * Nothing requires this loop. It never claims and never hands a card to anybody; it asks
  * SuperPipeline for holds that lapse on their own, each at most 300 s. If SuperDispatch stops,
@@ -490,7 +491,11 @@ export function createLoop(deps: LoopDeps): Loop {
       ladder,
       tiers,
     });
-    if (decision.kind === "none" && decision.reason === "waiting-on-holds") {
+    if (
+      decision.kind === "none" &&
+      (decision.reason === "waiting-on-holds" ||
+        decision.reason === "waiting-on-load")
+    ) {
       g.pass.deferred++;
       return;
     }

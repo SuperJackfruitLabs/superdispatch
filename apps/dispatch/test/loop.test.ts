@@ -475,8 +475,8 @@ describe("the next pass: what became of the card", () => {
     const w = world();
     w.addCard(CARD);
     w.addAgent("agt_a");
-    w.addAgent("agt_b", { roster: { busy: true } });
-    // agt_a is the only idle agent: held for it as the winner, lapsed. With nobody else free, the
+    w.addAgent("agt_b", { roster: { ready: false } });
+    // agt_a is the only healthy agent: held for it as the winner, lapsed. With nobody else free, the
     // runner-up step opens the card to any match.
     await w.loop.passBoard(BOARD);
     w.advance(61 * S);
@@ -503,7 +503,7 @@ describe("the next pass: what became of the card", () => {
     expect(all[4]?.noDecisionReason).toBe("none-eligible");
     expect(verdicts(all[4]?.candidates)).toEqual({
       agt_a: "recently-no-show",
-      agt_b: "not-idle",
+      agt_b: "unhealthy",
     });
     // On the open cards it is passed over and a no-show, but pull still lets it claim them.
     expect(verdicts(all[3]?.candidates).agt_a).toBe(
@@ -727,6 +727,31 @@ describe("tiers: a ladder of holds per card", () => {
     expect(
       w.store.latestDecision(BOARD, "card_00000000000000c3"),
     ).toMatchObject({ tier: "winner", tierStep: 1, chosenAgent: "agt_a" });
+  });
+
+  test("a card whose candidates are all busy waits, unrecorded, and is held for the first to free up", async () => {
+    const w = world();
+    w.addCard(CARD);
+    // Both have work in hand, so the bridge answers not ready for each.
+    w.addAgent("agt_a", { roster: { busy: true, ready: false } });
+    w.addAgent("agt_b", { roster: { busy: true, ready: false } });
+    const first = await w.loop.passBoard(BOARD);
+    expect(first).toMatchObject({ decided: 0, deferred: 1 });
+    expect(w.store.latestDecision(BOARD, CARD)).toBeNull();
+    // agt_b finishes its work: the very next pass holds the card for it, with no redecide wait.
+    w.advance(5 * S);
+    w.roster.set("prn_agt_b", {
+      ...w.roster.get("prn_agt_b")!,
+      busy: false,
+      ready: true,
+    });
+    await w.loop.passBoard(BOARD);
+    const placed = w.store.latestDecision(BOARD, CARD)!;
+    expect(placed).toMatchObject({ tier: "winner", chosenAgent: "agt_b" });
+    expect(verdicts(placed.candidates)).toEqual({
+      agt_a: "unhealthy,not-idle",
+      agt_b: "ok",
+    });
   });
 });
 
