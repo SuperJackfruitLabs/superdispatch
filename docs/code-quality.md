@@ -41,6 +41,11 @@ What the baseline holds in shipped source (measured 2026-11-13), and why it is h
 
 Lower them in code you touch, then `bun run lint --update`.
 
+The baseline was recounted on main after the station filters (#14) and the policy filter (#13)
+landed, so it starts from the code as it is: `consistent-function-scoping` 22 to 29,
+`no-array-sort` 7 to 11, `no-console` 7 to 8 and `no-unsafe-type-assertion` 31 to 41. From here
+the counts only fall.
+
 ## Architecture: `apps/dispatch/test/architecture.test.ts`
 
 Run by `bun test`. It holds:
