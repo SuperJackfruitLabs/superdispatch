@@ -1,0 +1,15 @@
+{
+  "name": "@superjackfruitlabs/superdispatch",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The suite's scheduler: for a ready SuperPipeline card it names the agent that should take it, and records why.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts"
+  },
+  "dependencies": {
+    "@superjackfruitlabs/treaty-cloudevents": "0.0.12",
+    "@superjackfruitlabs/treaty-event-schemas": "0.0.12"
+  }
+}
