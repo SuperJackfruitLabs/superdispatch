@@ -28,6 +28,8 @@ import {
 } from "../src/sources/index.ts";
 import type { CandidateRecord, TierSettings } from "../src/placement/index.ts";
 import type { CandidateSet, Fairness } from "../src/config.ts";
+import { createPolicyGate } from "../src/loop/policy.ts";
+import type { PolicyAnswer, PolicyRequest } from "../src/sources/index.ts";
 import { tempStore } from "./helpers.ts";
 
 const BOARD = "brd_00000000000000b1";
@@ -53,6 +55,8 @@ function world(
     suggestions?: SuggestionSettings;
     superwitness?: Superwitness;
     candidateSet?: CandidateSet;
+    /** Accounts' dispatch policy, as a function of the request; unset is policy off. */
+    decide?: (request: PolicyRequest) => PolicyAnswer | "throw";
   } = {},
 ) {
   const t = tempStore();
@@ -229,6 +233,23 @@ function world(
     ...(options.candidateSet ? { candidateSet: options.candidateSet } : {}),
     ...(options.suggestions ? { suggestions: options.suggestions } : {}),
     ...(options.superwitness ? { superwitness: options.superwitness } : {}),
+    ...(options.decide
+      ? {
+          policy: createPolicyGate({
+            accounts: {
+              decide: async (request) => {
+                calls.push(`decide ${request.subject} ${request.stage}`);
+                const answer = options.decide?.(request);
+                if (answer === "throw" || answer === undefined)
+                  throw new SourceError("accounts", 0, "unreachable");
+                return answer;
+              },
+            },
+            store: t.store,
+            log: (line) => log.push(line),
+          }),
+        }
+      : {}),
     now: () => now,
     newId: () => `pld_${String(++ids).padStart(24, "0")}`,
     newSuggestionId: () => `sug_${String(++ids).padStart(24, "0")}`,
@@ -435,6 +456,138 @@ describe("one pass: placing a ready card", () => {
       deferred: MAX_CARDS_PER_PASS - 2,
     });
     expect(w.store.listDecisions({ limit: 100 })).toHaveLength(2);
+  });
+});
+
+describe("the dispatch policy", () => {
+  const allow = (version: number | null): PolicyAnswer => ({
+    allow: true,
+    reasons: [version === null ? "no-policy" : "allowed"],
+    policyVersion: version,
+    limits: [],
+  });
+
+  test("off: Accounts is never asked, and placement is as before", async () => {
+    const w = world();
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_b");
+    await w.loop.passBoard(BOARD);
+    expect(w.calls.filter((c) => c.startsWith("decide"))).toEqual([]);
+    const [d] = w.store.listDecisions({ limit: 1 });
+    for (const r of (d?.candidates ?? []) as CandidateRecord[])
+      expect(r.policy).toBeUndefined();
+  });
+
+  test("an agent the policy forbids is rejected as policy-denied, with the reasons recorded, and another is held for", async () => {
+    const w = world({
+      decide: (r) =>
+        r.subject === "prn_agt_b"
+          ? {
+              allow: false,
+              reasons: ["reviewers-only"],
+              policyVersion: 4,
+              limits: [],
+            }
+          : allow(4),
+    });
+    w.addCard(CARD);
+    // agt_b would win on least recently used; the policy rules it out.
+    w.addAgent("agt_a", {
+      roster: { lastDispatchedAt: new Date(T0 - 60 * S).toISOString() },
+    });
+    w.addAgent("agt_b");
+    w.addAgent("agt_c", { reasons: ["grant_denied"] });
+    await w.loop.passBoard(BOARD);
+    // The agent the grant already refuses is never sent to Accounts; the stage's capabilities are.
+    expect(w.calls.filter((c) => c.startsWith("decide")).sort()).toEqual([
+      "decide prn_agt_a build",
+      "decide prn_agt_b build",
+    ]);
+    expect(w.calls).toContain(`reserve ${CARD} agt_a 60`);
+    const [d] = w.store.listDecisions({ limit: 1 });
+    expect(verdicts(d?.candidates)).toEqual({
+      agt_a: "ok",
+      agt_b: "policy-denied",
+      agt_c: "grant-denied",
+    });
+    const policyOf = (id: string) =>
+      ((d?.candidates ?? []) as CandidateRecord[]).find(
+        (r) => r.candidate.agentId === id,
+      )?.policy;
+    expect(policyOf("agt_b")).toEqual({
+      allow: false,
+      reasons: ["reviewers-only"],
+      policyVersion: 4,
+    });
+    expect(policyOf("agt_a")).toEqual({
+      allow: true,
+      reasons: ["allowed"],
+      policyVersion: 4,
+    });
+  });
+
+  test("a limit counts this service's holds for the agent in its window", async () => {
+    const limited: PolicyAnswer = {
+      ...allow(2),
+      limits: [{ id: "daily", maxRuns: 1, windowHours: 24 }],
+    };
+    const w = world({
+      decide: (r) => (r.subject === "prn_agt_b" ? limited : allow(2)),
+    });
+    w.addCard(CARD);
+    w.addAgent("agt_a", {
+      roster: { lastDispatchedAt: new Date(T0 - 60 * S).toISOString() },
+    });
+    w.addAgent("agt_b");
+    await w.loop.passBoard(BOARD);
+    // agt_b, least recently used, takes the first hold and claims it: it holds nothing now.
+    w.claim(CARD, "agt_b");
+    w.advance(10 * S);
+    w.addCard("card_00000000000000c2");
+    await w.loop.passBoard(BOARD);
+    // At its limit of one hold a day, the next card goes to agt_a though agt_b ranks first.
+    expect(w.calls.filter((c) => c.startsWith("reserve"))).toEqual([
+      `reserve ${CARD} agt_b 60`,
+      "reserve card_00000000000000c2 agt_a 60",
+    ]);
+    const second = w.store
+      .listDecisions({ limit: 5 })
+      .find((d) => d.cardId === "card_00000000000000c2");
+    expect(
+      ((second?.candidates ?? []) as CandidateRecord[]).find(
+        (r) => r.candidate.agentId === "agt_b",
+      )?.policy,
+    ).toEqual({ allow: false, reasons: ["limit:daily"], policyVersion: 2 });
+  });
+
+  test("Accounts unreachable: closed with a policy or none heard yet, open once it said there is no policy", async () => {
+    let up = false;
+    let version: number | null = 1;
+    const w = world({ decide: () => (up ? allow(version) : "throw") });
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_b");
+    // A cold start with Accounts down: nobody is held for; the card is left to pull.
+    await w.loop.passBoard(BOARD);
+    let [d] = w.store.listDecisions({ limit: 1 });
+    expect(d?.noDecisionReason).toBe("none-eligible");
+    expect(verdicts(d?.candidates)).toEqual({
+      agt_a: "policy-denied",
+      agt_b: "policy-denied",
+    });
+    expect(w.log.some((l) => l.includes("failing closed"))).toBe(true);
+    // Accounts says there is no policy: placed; then down again, still placed.
+    up = true;
+    version = null;
+    w.addCard("card_00000000000000c2");
+    await w.loop.passBoard(BOARD);
+    up = false;
+    w.addCard("card_00000000000000c3");
+    await w.loop.passBoard(BOARD);
+    [d] = w.store.listDecisions({ limit: 1 });
+    expect(d?.cardId).toBe("card_00000000000000c3");
+    expect(d?.chosenAgent).not.toBeNull();
   });
 });
 

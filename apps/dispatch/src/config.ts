@@ -117,6 +117,16 @@ export const STATION_FILTER_MODES = ["on", "off"] as const;
 export type StationFilterMode = (typeof STATION_FILTER_MODES)[number];
 export const DEFAULT_STATION_FILTERS: StationFilterMode = "on";
 
+/**
+ * Whether placement asks Accounts' dispatch policy who may take each card
+ * (`SUPERDISPATCH_POLICY`): `off`, the default, asks nothing and every candidate passes the policy
+ * filter, as before policy existed; `on` asks `POST /api/policy/decide`, which needs the scope
+ * `policy:decide` on this service's credential.
+ */
+export const POLICY_MODES = ["off", "on"] as const;
+export type PolicyMode = (typeof POLICY_MODES)[number];
+export const DEFAULT_POLICY_MODE: PolicyMode = "off";
+
 export interface Config {
   port: number;
   /** SuperPipeline's API URL, and the audience of every assertion asked for it. */
@@ -162,6 +172,8 @@ export interface Config {
   stationFilters: StationFilterMode;
   /** The weakest proof a registry fact may have and still satisfy a placement. */
   minProof: Proof;
+  /** Whether placement asks Accounts' dispatch policy. */
+  policy: PolicyMode;
   /** Seconds between two computations of the roster suggestions; 0 is every sweep. */
   suggestEverySeconds: number;
   /** Hours of decisions the roster suggestions read. */
@@ -351,6 +363,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     DEFAULT_MIN_PROOF,
     problems,
   );
+  const policy = oneOf(
+    env,
+    "SUPERDISPATCH_POLICY",
+    POLICY_MODES,
+    DEFAULT_POLICY_MODE,
+    problems,
+  );
 
   const suggestEverySeconds = wholeNumber(
     env,
@@ -404,6 +423,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     candidates,
     stationFilters,
     minProof,
+    policy,
     suggestEverySeconds,
     suggestWindowHours,
     stallMinutes,

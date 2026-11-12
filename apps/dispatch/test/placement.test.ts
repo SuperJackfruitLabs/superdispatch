@@ -63,6 +63,7 @@ describe("the reason codes", () => {
       "not-idle",
       "not-on-roster",
       "passed-over",
+      "policy-denied",
       "recently-no-show",
       "tool-missing",
       "unhealthy",
@@ -272,6 +273,7 @@ function agent(
     history?: Partial<CandidateFacts["history"]>;
     holds?: number;
     stageRuns?: StageRun[];
+    policy?: CandidateFacts["policy"];
   } = {},
 ): CandidateFacts {
   const reasons = over.reasons ?? [];
@@ -305,6 +307,7 @@ function agent(
     history: { settled: 0, claimed: 0, noShowsAtMs: [], ...over.history },
     holds: over.holds ?? 0,
     ...(over.stageRuns !== undefined ? { stageRuns: over.stageRuns } : {}),
+    ...(over.policy !== undefined ? { policy: over.policy } : {}),
   };
 }
 
@@ -375,6 +378,13 @@ describe("place: the filters", () => {
     ],
     ["holding another card", agent("agt_x", { holds: 1 }), "holding-another"],
     [
+      "the dispatch policy forbids",
+      agent("agt_x", {
+        policy: { allow: false, reasons: ["review-only"], policyVersion: 3 },
+      }),
+      "policy-denied",
+    ],
+    [
       "with two holds lapsed in the window",
       agent("agt_x", {
         history: { noShowsAtMs: [NOW - 5 * MIN, NOW - 20 * MIN] },
@@ -400,6 +410,37 @@ describe("place: the filters", () => {
     expect(
       d.candidates.find((r) => r.candidate.agentId === "agt_x")?.filters,
     ).toEqual([rejected("roster")]);
+  });
+
+  test("the policy filter passes an agent the policy was not asked about, or allows, and the record keeps the answer", () => {
+    const allowed = { allow: true, reasons: ["allowed"], policyVersion: 3 };
+    const denied = { allow: false, reasons: ["limit:daily"], policyVersion: 3 };
+    const d = decide(
+      agent("agt_a", { policy: allowed }),
+      agent("agt_b"),
+      agent("agt_x", { policy: denied }),
+    );
+    expect(verdicts(d)).toEqual({
+      agt_a: "ok",
+      agt_b: "ok",
+      agt_x: "policy-denied",
+    });
+    const record = (id: string) =>
+      d.candidates.find((r) => r.candidate.agentId === id);
+    expect(record("agt_a")?.policy).toEqual(allowed);
+    expect(record("agt_x")?.policy).toEqual(denied);
+    expect(record("agt_b")?.policy).toBeUndefined();
+  });
+
+  test("an agent the policy forbids is not waited for: forbidden is not busy", () => {
+    const busy = { roster: { busy: true, ready: false } };
+    const denied = { allow: false, reasons: ["review-only"], policyVersion: 1 };
+    expect(
+      decide(
+        agent("agt_a", { ...busy, policy: denied }),
+        agent("agt_b", { ...busy, policy: denied }),
+      ),
+    ).toMatchObject({ kind: "none", reason: "none-eligible" });
   });
 
   test("every filter runs for a rostered agent, so a candidate rejected twice says so", () => {

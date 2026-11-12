@@ -8,15 +8,90 @@
  * AgentPod's roster. Each token is held until shortly before it expires (`createServiceTokens`,
  * as SuperExchange holds its own) and never logged. The credential appears nowhere but that one
  * header: not in an error, not in a log.
+ *
+ * `POST /api/policy/decide` (scope `policy:decide`) with `{ subject, action: "take", resource:
+ * { board, stage, labels, capabilities, card } }`, carrying the same credential, answers whether
+ * the workspace's dispatch policy lets that agent take that work: `{ allow, reasons,
+ * policyVersion, limits }`. `policyVersion` is null when the workspace has no policy, and then
+ * the answer is always allow. A read: it decides nothing here, and changes nothing there.
  */
 import type { ServiceCredential } from "../config.ts";
 import { SourceError, call, field, okBody, type CallDeps } from "./http.ts";
+
+/** What the policy is asked about: one agent taking work at one board stage. */
+export interface PolicyRequest {
+  /** The agent's principal (`prn_…`). */
+  subject: string;
+  board: string;
+  stage: string;
+  labels: readonly string[];
+  capabilities: readonly string[];
+  /** The card, for the decision record at Accounts only. */
+  card: string;
+}
+
+/** A per-agent ceiling from the policy: at most `maxRuns` cards in any `windowHours`. */
+export interface PolicyLimit {
+  id: string;
+  maxRuns: number;
+  windowHours: number;
+}
+
+/** Accounts' answer for one agent and one piece of work. */
+export interface PolicyAnswer {
+  allow: boolean;
+  reasons: string[];
+  /** The policy version decided under; null when the workspace has no policy. */
+  policyVersion: number | null;
+  limits: PolicyLimit[];
+}
 
 export interface Accounts {
   /** This service's own token for `audience`. Throws `SourceError` when it cannot be had. */
   serviceToken(
     audience: string,
   ): Promise<{ accessToken: string; expiresIn: number }>;
+  /** The dispatch policy's answer for one request. Throws `SourceError` when there is none. */
+  decide(request: PolicyRequest): Promise<PolicyAnswer>;
+}
+
+const isWhole = (v: unknown): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v > 0;
+
+/** A limit as Accounts sends it, or null when it is not one. */
+function limitOf(v: unknown): PolicyLimit | null {
+  const id = field(v, "id");
+  const maxRuns = field(v, "maxRuns");
+  const windowHours = field(v, "windowHours");
+  return typeof id === "string" && isWhole(maxRuns) && isWhole(windowHours)
+    ? { id, maxRuns, windowHours }
+    : null;
+}
+
+/** The policy's answer, or a `malformed_response` error: an answer that cannot be read allows nothing. */
+function policyAnswerOf(json: unknown): PolicyAnswer {
+  const allow = field(json, "allow");
+  const reasons = field(json, "reasons");
+  const version = field(json, "policyVersion");
+  const limits = field(json, "limits");
+  if (
+    typeof allow !== "boolean" ||
+    !Array.isArray(reasons) ||
+    !reasons.every((r) => typeof r === "string") ||
+    !(version === null || isWhole(version)) ||
+    !Array.isArray(limits)
+  ) {
+    throw new SourceError("accounts", 200, "malformed_response");
+  }
+  const read = limits.map(limitOf);
+  if (read.some((l) => l === null))
+    throw new SourceError("accounts", 200, "malformed_response");
+  return {
+    allow,
+    reasons: reasons.slice(0, 20).map((r) => r.slice(0, 64)),
+    policyVersion: version,
+    limits: read.filter((l) => l !== null),
+  };
 }
 
 export function createAccounts(
@@ -51,6 +126,28 @@ export function createAccounts(
       }
       return { accessToken, expiresIn };
     },
+    async decide(request) {
+      return policyAnswerOf(
+        okBody(
+          "accounts",
+          await call(http, `${base}/api/policy/decide`, {
+            method: "POST",
+            authorization,
+            body: {
+              subject: request.subject,
+              action: "take",
+              resource: {
+                board: request.board,
+                stage: request.stage,
+                labels: request.labels,
+                capabilities: request.capabilities,
+                card: request.card,
+              },
+            },
+          }),
+        ),
+      );
+    },
   };
 }
 
@@ -71,7 +168,7 @@ export interface ServiceTokens {
  * request holds nothing, so the next call asks again.
  */
 export function createServiceTokens(deps: {
-  accounts: Accounts;
+  accounts: Pick<Accounts, "serviceToken">;
   audience: string;
   now?: () => number;
 }): ServiceTokens {

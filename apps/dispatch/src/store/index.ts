@@ -245,6 +245,11 @@ export interface Store {
   noShowsSince(since: string): Map<string, string[]>;
   /** Per agent: the holds still live at `at` (granted, unsettled, not lapsed), on any board. */
   liveHolds(at: string): Map<string, number>;
+  /**
+   * How many holds SuperPipeline granted for the agent in decisions made at or after `since`, on
+   * any board, whatever became of them: what a dispatch policy's limit counts.
+   */
+  holdsMadeSince(agentId: string, since: string): number;
   /** The decisions made at or after `since`, newest first, at most `limit`. */
   decisionsSince(since: string, limit: number): DecisionRow[];
 
@@ -571,6 +576,15 @@ function storeOver(db: Database): Store {
         )
         .all(at);
       return new Map(rows.map((r) => [r.agent, r.n]));
+    },
+    holdsMadeSince(agentId, since) {
+      const row = db
+        .query<{ n: number }, [string, string]>(
+          `SELECT count(*) AS n FROM decisions
+           WHERE chosen_agent = ? AND reserved_until IS NOT NULL AND created_at >= ?`,
+        )
+        .get(agentId, since);
+      return row?.n ?? 0;
     },
     decisionsSince: (since, limit) =>
       db

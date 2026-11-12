@@ -52,6 +52,13 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
 lastSeenAt, source}`; health and idle (`inFlight < capacity`) are read from it, and every
   candidate record carries its `source` (`roster` or `direct`). `roster`, the default, places
   exactly as before.
+- The dispatch policy, off until the operator turns it on: with `SUPERDISPATCH_POLICY=on`, each
+  candidate the card's grant does not already refuse is checked against the workspace's dispatch
+  policy in Accounts (`POST /api/policy/decide`, scope `policy:decide`), once a pass per agent and
+  board stage. A deny rejects it as `policy-denied`, with Accounts' reasons on the record. A policy
+  limit counts the holds SuperDispatch made for the agent in the window (`limit:<id>`). When
+  Accounts cannot answer, it fails closed unless Accounts last said the workspace has no policy
+  (`policy-unread`). `off`, the default, places exactly as before.
 - A sweep of every opted-in board every 30 seconds, and a look at a board as soon as the event
   relay delivers one of its events.
 - The operator API: opt a board in or out (`/v1/boards`), and read the decisions

@@ -367,6 +367,29 @@ describe("decisions", () => {
     expect(store.liveHolds(T(5))).toEqual(new Map([["agt_b", 1]]));
     expect(store.liveHolds(T(9))).toEqual(new Map());
   });
+
+  test("holds made since a time, per agent, on any board, whatever became of them; a refused hold is none", () => {
+    const { store } = fresh();
+    const at = (id: string, agent: string, minute: number, held: boolean) => {
+      store.recordDecision(
+        decision({ id, chosenAgent: agent, createdAt: T(minute) }),
+      );
+      store.setReservation(
+        id,
+        held ? { reservedUntil: T(minute + 1) } : { refused: "card_reserved" },
+        T(minute),
+      );
+    };
+    at("pld_1", "agt_a", 1, true);
+    at("pld_2", "agt_a", 3, true);
+    at("pld_3", "agt_a", 4, false);
+    at("pld_4", "agt_b", 4, true);
+    store.settle("pld_1", "claimed", "agt_a", T(2));
+    expect(store.holdsMadeSince("agt_a", T(0))).toBe(2);
+    expect(store.holdsMadeSince("agt_a", T(2))).toBe(1);
+    expect(store.holdsMadeSince("agt_a", T(5))).toBe(0);
+    expect(store.holdsMadeSince("agt_c", T(0))).toBe(0);
+  });
 });
 
 describe("decisions since", () => {

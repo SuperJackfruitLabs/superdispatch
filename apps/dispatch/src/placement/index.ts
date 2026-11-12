@@ -21,6 +21,9 @@
  *   card (capability, grant, the board's concurrency for the agent, and any other reason it gives);
  *   the **station filters**, only when the card's stage states a `placement` and AgentPod's
  *   capability registry was read (isolation, model, tools, credentials; `requirements.ts`);
+ *   the workspace's **dispatch policy** in Accounts, when it is asked (`policy`, from the loop: the
+ *   answer for the agent at this board stage, with its per-agent limits already applied; unasked,
+ *   the filter passes, as before policy existed);
  *   **healthy** and **idle** by the agent's load in the shared shape (`AgentLoad`, whichever source
  *   reported it): healthy, and less work in hand than its capacity (for a rostered agent, no work
  *   in hand on any board: the workspace-wide cap, and the reason a reservation is only ever made
@@ -214,6 +217,12 @@ export const FILTERS = {
   model: "model-mismatch",
   tools: "tool-missing",
   credentials: "credential-missing",
+  /**
+   * The workspace's dispatch policy lets the agent take this work (Accounts' decision, or the
+   * loop's when Accounts could not be asked, or one of the policy's limits holds the agent). It
+   * only narrows: the grant is SuperPipeline's filter above, and policy never widens it.
+   */
+  policy: "policy-denied",
   /** The agent is healthy by its load (`AgentLoad.healthy`): ready to take a card held for it. */
   health: "unhealthy",
   /** The agent is under its board's concurrency (SuperPipeline's `concurrency_reached`). */
@@ -303,6 +312,8 @@ export interface CandidateRecord {
   readonly capable?: boolean;
   /** The candidate's history at this stage; null when SuperWitness's was not read. */
   readonly stageHistory?: StageHistory | null;
+  /** The dispatch policy's verdict, when it was asked. */
+  readonly policy?: PolicyVerdict;
 }
 
 /** The card a decision is about. */
@@ -411,6 +422,17 @@ export type Decision =
       readonly candidates: readonly CandidateRecord[];
     };
 
+/**
+ * The dispatch policy's verdict for one candidate at this card's stage: Accounts' answer, with the
+ * loop's own reasons added (`policy-unread`, `limit:<id>`, `no-principal`).
+ */
+export interface PolicyVerdict {
+  readonly allow: boolean;
+  readonly reasons: readonly string[];
+  /** The policy version decided under; null with no policy, or when none was read. */
+  readonly policyVersion: number | null;
+}
+
 /** What is known of one agent for one card, already read. */
 export interface CandidateFacts {
   readonly agentId: string;
@@ -451,6 +473,11 @@ export interface CandidateFacts {
    * it has no station); unset when the registry was not read, and then no station filter runs.
    */
   readonly station?: StationCaps | null;
+  /**
+   * The dispatch policy's verdict; unset when policy was not asked (it is off, or another filter
+   * already refuses the agent), and then the policy filter passes.
+   */
+  readonly policy?: PolicyVerdict;
 }
 
 /** Everything placement needs for one card, already read, with the time it is placed at. */
@@ -517,6 +544,7 @@ export function filter(
     check("grant", !named.has("grant")),
     check("claimable", !unnamed),
     ...stationFilters(facts, needs, minProof),
+    check("policy", facts.policy === undefined || facts.policy.allow),
     check("health", load.healthy),
     check("capacity", !named.has("capacity")),
     check("idle", isIdle(load)),
@@ -687,6 +715,7 @@ export function place(input: PlacementInput): Decision {
       ? { capable: !facts.pipeline.reasons.includes("capability_mismatch") }
       : {}),
     stageHistory: histories.get(facts.agentId) ?? null,
+    ...(facts.policy !== undefined ? { policy: facts.policy } : {}),
   }));
 
   const rostered = filtered.filter(({ filters }) =>
