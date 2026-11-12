@@ -3,7 +3,8 @@
  *
  * - `GET /healthz`: the health check;
  * - `POST /v1/relay/events`: the event relay's signed deliveries (`relay.ts`);
- * - `/v1/boards…`, `/v1/decisions…` and `/v1/suggestions…`: the operator's API (`operator.ts`).
+ * - `/v1/boards…`, `/v1/decisions…` and `/v1/suggestions…`: the operator's API (`operator.ts`);
+ * - `/v1/dataset` and `/v1/models…`: the operator's learned-routing API (`learned.ts`).
  *
  * Anything else is 404.
  */
@@ -17,6 +18,9 @@ import {
   createOperatorHandler,
 } from "./operator.ts";
 import { RELAY_EVENTS_PATH, createRelayHandler } from "./relay.ts";
+import { randomBytes } from "node:crypto";
+import { LEARNED_OFF, type LearnedSettings } from "../loop/learned.ts";
+import { DATASET_PATH, MODELS_PATH, createLearnedHandler } from "./learned.ts";
 
 export const SERVICE = "superdispatch";
 
@@ -29,6 +33,10 @@ export interface HandlerDeps {
   log?: (line: string) => void;
   /** Test seam for the relay signature's clock. */
   nowMs?: () => number;
+  /** The learned-routing settings in force; off when unset. */
+  learned?: LearnedSettings;
+  /** A new model id: `mdl_` and 24 hex digits. */
+  newModelId?: () => string;
 }
 
 export function createHandler(deps: HandlerDeps) {
@@ -48,6 +56,16 @@ export function createHandler(deps: HandlerDeps) {
     ...(deps.onBoard ? { onBoardEnabled: deps.onBoard } : {}),
   });
 
+  const learned = createLearnedHandler({
+    operatorTokenSha256: deps.config.operatorTokenSha256,
+    store: deps.store,
+    settings: deps.learned ?? LEARNED_OFF,
+    now: deps.now ?? Date.now,
+    newModelId:
+      deps.newModelId ?? (() => `mdl_${randomBytes(12).toString("hex")}`),
+    log,
+  });
+
   return async (request: Request): Promise<Response> => {
     const { pathname } = new URL(request.url);
     if (pathname === "/healthz") {
@@ -59,6 +77,12 @@ export function createHandler(deps: HandlerDeps) {
     if (pathname === RELAY_EVENTS_PATH) {
       return request.method === "POST" ? relay(request) : notFound();
     }
+    if (
+      pathname === DATASET_PATH ||
+      pathname === MODELS_PATH ||
+      pathname.startsWith(`${MODELS_PATH}/`)
+    )
+      return learned(request);
     for (const prefix of [BOARDS_PATH, DECISIONS_PATH, SUGGESTIONS_PATH]) {
       if (pathname === prefix || pathname.startsWith(`${prefix}/`))
         return operator(request);

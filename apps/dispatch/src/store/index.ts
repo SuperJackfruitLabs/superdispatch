@@ -13,6 +13,19 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import {
+  LEARNED_MIGRATION,
+  learnedStore,
+  type LearnedStore,
+} from "./learned.ts";
+
+export type {
+  LearnedStore,
+  ModelRow,
+  NewModel,
+  ShadowEntry,
+  ShadowOutcomeRow,
+} from "./learned.ts";
 
 /** The database's file name inside the data directory. */
 export const DATABASE_FILE = "superdispatch.sqlite";
@@ -91,6 +104,9 @@ export const MIGRATIONS: readonly string[] = [
      dismissed_at TEXT,
      UNIQUE (kind, board_id, stage_key)
    );`,
+  // Learned routing (`learned.ts`): the models fitted on the labelled dataset, and what a model
+  // would have chosen for each decision in shadow.
+  LEARNED_MIGRATION,
 ];
 
 /** Which suggestions a listing reads: open (not resolved, not dismissed) when unset. */
@@ -193,7 +209,7 @@ export class StoreError extends Error {
   }
 }
 
-export interface Store {
+export interface Store extends LearnedStore {
   /** The schema version the database is at: the number of migrations applied. */
   schemaVersion(): number;
   close(): void;
@@ -314,7 +330,7 @@ interface BoardSql {
   updated_at: string;
 }
 
-interface DecisionSql {
+export interface DecisionSql {
   id: string;
   board_id: string;
   card_id: string;
@@ -421,6 +437,7 @@ function storeOver(db: Database): Store {
   };
 
   return {
+    ...learnedStore(db, decisionOf),
     schemaVersion: () => userVersion(db),
     close: () => db.close(),
 

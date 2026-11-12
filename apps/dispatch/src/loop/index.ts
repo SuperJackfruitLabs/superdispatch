@@ -84,7 +84,6 @@ import {
   DEFAULT_HISTORY,
   DEFAULT_TIERS,
   NO_SHOW_WINDOW_MS,
-  POLICY,
   boardOrder,
   fairOrder,
   inCandidateSet,
@@ -108,6 +107,7 @@ import {
   type PolicyGate,
   type PolicyPass,
 } from "./policy.ts";
+import { createLearnedRouter, type LearnedSettings } from "./learned.ts";
 
 export * from "./suggestions.ts";
 
@@ -153,6 +153,8 @@ export interface LoopDeps {
   suggestions?: SuggestionSettings;
   /** A new suggestion id; `sug_` and random hex when unset. */
   newSuggestionId?: () => string;
+  /** Learned routing (`./learned.ts`); off when unset: no model is read. */
+  learned?: LearnedSettings;
   now: () => number;
   /** A new decision id: `pld_` and hex. */
   newId: () => string;
@@ -348,6 +350,11 @@ export function createLoop(deps: LoopDeps): Loop {
   const candidateSet = deps.candidateSet ?? DEFAULT_CANDIDATE_SET;
   const policyGate =
     deps.policy ?? createPolicyGate({ accounts: null, store, log });
+  const learned = createLearnedRouter({
+    store,
+    log,
+    ...(deps.learned ? { settings: deps.learned } : {}),
+  });
 
   /**
    * Every agent's load from SuperPipeline, by agent, when the candidate set is `all`; empty
@@ -631,7 +638,7 @@ export function createLoop(deps: LoopDeps): Loop {
     const ladder = ladderOf(
       store.ladderDecisions(boardId, card.id, card.stageKey, card.attemptCount),
     );
-    const decision = place({
+    const formula = place({
       card: { boardId, cardId: card.id, stageKey: card.stageKey },
       nowMs: at.nowMs,
       candidates,
@@ -642,6 +649,9 @@ export function createLoop(deps: LoopDeps): Loop {
       needs: registryRead ? needs : null,
       ...(deps.minProof !== undefined ? { minProof: deps.minProof } : {}),
     });
+    // In shadow the model is only asked; it changes the decision only when on and past its gate.
+    const routed = learned.route(formula, at.nowMs);
+    const decision = routed.decision;
     if (
       decision.kind === "none" &&
       (decision.reason === "waiting-on-holds" ||
@@ -656,7 +666,7 @@ export function createLoop(deps: LoopDeps): Loop {
       boardId,
       cardId: card.id,
       stageKey: card.stageKey,
-      policy: POLICY,
+      policy: routed.policy,
       chosenAgent: decision.kind === "placed" ? decision.chosen : null,
       noDecisionReason: decision.kind === "none" ? decision.reason : null,
       candidates: decision.candidates,
@@ -666,6 +676,12 @@ export function createLoop(deps: LoopDeps): Loop {
       requires: g.requires.get(card.stageKey) ?? null,
       createdAt: at.nowIso,
     });
+    if (routed.shadow !== null)
+      store.recordShadow({
+        ...routed.shadow,
+        decisionId: id,
+        createdAt: at.nowIso,
+      });
     g.pass.decided++;
     if (decision.kind !== "placed") {
       log(

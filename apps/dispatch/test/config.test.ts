@@ -57,6 +57,10 @@ describe("loadConfig", () => {
       suggestEverySeconds: 0,
       suggestWindowHours: 24,
       stallMinutes: 30,
+      learned: "off",
+      learnedMinRows: 500,
+      learnedMinShadow: 100,
+      learnedMarginPct: 5,
       dataDir: "/data",
       operatorTokenSha256: OPERATOR_TOKEN_SHA256,
     });
@@ -267,6 +271,35 @@ describe("loadConfig", () => {
     expect(
       problems({ ...FULL, SUPERDISPATCH_POLICY: "secret-policy-value" }),
     ).toEqual(["SUPERDISPATCH_POLICY is not one of off, on"]);
+  });
+
+  test("takes the learned mode, off by default, and its gate, and names the setting it refuses", () => {
+    expect(loadConfig(FULL).learned).toBe("off");
+    for (const mode of ["off", "shadow", "on"] as const)
+      expect(loadConfig({ ...FULL, SUPERDISPATCH_LEARNED: mode }).learned).toBe(
+        mode,
+      );
+    const c = loadConfig({
+      ...FULL,
+      SUPERDISPATCH_LEARNED_MIN_ROWS: "2000",
+      SUPERDISPATCH_LEARNED_MIN_SHADOW: "50",
+      SUPERDISPATCH_LEARNED_MARGIN_PCT: "0",
+    });
+    expect([c.learnedMinRows, c.learnedMinShadow, c.learnedMarginPct]).toEqual([
+      2000, 50, 0,
+    ]);
+    expect(
+      problems({
+        ...FULL,
+        SUPERDISPATCH_LEARNED: "secret-learned-value",
+        SUPERDISPATCH_LEARNED_MIN_ROWS: "0",
+        SUPERDISPATCH_LEARNED_MARGIN_PCT: "101",
+      }),
+    ).toEqual([
+      "SUPERDISPATCH_LEARNED is not one of off, shadow, on",
+      "SUPERDISPATCH_LEARNED_MIN_ROWS is not a whole number from 1 to 10000000",
+      "SUPERDISPATCH_LEARNED_MARGIN_PCT is not a whole number from 0 to 100",
+    ]);
   });
 
   test("takes the roster suggestion settings, within their ranges, and names the setting it refuses", () => {
