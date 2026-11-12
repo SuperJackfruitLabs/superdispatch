@@ -85,6 +85,16 @@ export const DEFAULT_HISTORY_MIN_SAMPLE = 3;
 /** Days in which a run's weight halves when `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS` is unset. */
 export const DEFAULT_HISTORY_HALF_LIFE_DAYS = 7;
 
+/**
+ * Who placement considers (`SUPERDISPATCH_CANDIDATES`): `roster`, the agents on AgentPod's roster
+ * for the board (charter ruling 4, the first slice), or `all`, those and every agent that claims
+ * with its own token once SuperPipeline reports its load and health. `roster` until the operator
+ * says otherwise.
+ */
+export const CANDIDATE_SETS = ["roster", "all"] as const;
+export type CandidateSet = (typeof CANDIDATE_SETS)[number];
+export const DEFAULT_CANDIDATE_SET: CandidateSet = "roster";
+
 export interface Config {
   port: number;
   /** SuperPipeline's API URL, and the audience of every assertion asked for it. */
@@ -124,6 +134,8 @@ export interface Config {
   topK: number;
   /** How a sweep orders cards across boards. */
   fairness: Fairness;
+  /** Who placement considers: the roster alone, or every agent that reports its load. */
+  candidates: CandidateSet;
   /** Seconds between two computations of the roster suggestions; 0 is every sweep. */
   suggestEverySeconds: number;
   /** Hours of decisions the roster suggestions read. */
@@ -288,6 +300,17 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
       );
   }
 
+  let candidates = DEFAULT_CANDIDATE_SET;
+  const rawCandidates = env.SUPERDISPATCH_CANDIDATES?.trim();
+  if (rawCandidates) {
+    if ((CANDIDATE_SETS as readonly string[]).includes(rawCandidates))
+      candidates = rawCandidates as CandidateSet;
+    else
+      problems.push(
+        `SUPERDISPATCH_CANDIDATES is not one of ${CANDIDATE_SETS.join(", ")}`,
+      );
+  }
+
   const suggestEverySeconds = wholeNumber(
     env,
     "SUPERDISPATCH_SUGGEST_EVERY_SECONDS",
@@ -337,6 +360,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     runnerUpSeconds,
     topK,
     fairness,
+    candidates,
     suggestEverySeconds,
     suggestWindowHours,
     stallMinutes,

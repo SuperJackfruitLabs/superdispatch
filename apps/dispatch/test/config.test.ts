@@ -50,6 +50,7 @@ describe("loadConfig", () => {
       runnerUpSeconds: 30,
       topK: 3,
       fairness: "round-robin",
+      candidates: "roster",
       suggestEverySeconds: 0,
       suggestWindowHours: 24,
       stallMinutes: 30,
@@ -239,6 +240,19 @@ describe("loadConfig", () => {
     ]);
   });
 
+  test("takes the candidate set, roster by default, and names the setting it refuses", () => {
+    expect(loadConfig(FULL).candidates).toBe("roster");
+    expect(
+      loadConfig({ ...FULL, SUPERDISPATCH_CANDIDATES: "roster" }).candidates,
+    ).toBe("roster");
+    expect(
+      loadConfig({ ...FULL, SUPERDISPATCH_CANDIDATES: "all" }).candidates,
+    ).toBe("all");
+    expect(
+      problems({ ...FULL, SUPERDISPATCH_CANDIDATES: "secret-candidate-value" }),
+    ).toEqual(["SUPERDISPATCH_CANDIDATES is not one of roster, all"]);
+  });
+
   test("takes the roster suggestion settings, within their ranges, and names the setting it refuses", () => {
     const c = loadConfig({
       ...FULL,
@@ -289,6 +303,7 @@ describe("loadConfig", () => {
       SUPERDISPATCH_TOP_K: "77",
       SUPERWITNESS_URL: "leaky-witness-url",
       SUPERDISPATCH_HISTORY_DAYS: "9999",
+      SUPERDISPATCH_CANDIDATES: "leaky-candidates",
     };
     let message = "";
     try {
