@@ -1,0 +1,13 @@
+{
+  "eslint(no-console)": 7,
+  "eslint(no-shadow)": 2,
+  "typescript(no-base-to-string)": 5,
+  "typescript(no-misused-promises)": 2,
+  "typescript(no-non-null-assertion)": 20,
+  "typescript(no-unnecessary-type-assertion)": 3,
+  "typescript(no-unsafe-type-assertion)": 31,
+  "typescript(unbound-method)": 2,
+  "unicorn(consistent-function-scoping)": 22,
+  "unicorn(no-array-reverse)": 5,
+  "unicorn(no-array-sort)": 7
+}
