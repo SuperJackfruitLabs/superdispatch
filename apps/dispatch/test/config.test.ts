@@ -53,6 +53,7 @@ describe("loadConfig", () => {
       candidates: "roster",
       stationFilters: "on",
       minProof: "declared",
+      policy: "off",
       suggestEverySeconds: 0,
       suggestWindowHours: 24,
       stallMinutes: 30,
@@ -255,6 +256,19 @@ describe("loadConfig", () => {
     ).toEqual(["SUPERDISPATCH_CANDIDATES is not one of roster, all"]);
   });
 
+  test("takes the policy mode, off by default, and names the setting it refuses", () => {
+    expect(loadConfig(FULL).policy).toBe("off");
+    expect(loadConfig({ ...FULL, SUPERDISPATCH_POLICY: "on" }).policy).toBe(
+      "on",
+    );
+    expect(loadConfig({ ...FULL, SUPERDISPATCH_POLICY: "off" }).policy).toBe(
+      "off",
+    );
+    expect(
+      problems({ ...FULL, SUPERDISPATCH_POLICY: "secret-policy-value" }),
+    ).toEqual(["SUPERDISPATCH_POLICY is not one of off, on"]);
+  });
+
   test("takes the roster suggestion settings, within their ranges, and names the setting it refuses", () => {
     const c = loadConfig({
       ...FULL,
@@ -306,6 +320,7 @@ describe("loadConfig", () => {
       SUPERWITNESS_URL: "leaky-witness-url",
       SUPERDISPATCH_HISTORY_DAYS: "9999",
       SUPERDISPATCH_CANDIDATES: "leaky-candidates",
+      SUPERDISPATCH_POLICY: "leaky-policy",
     };
     let message = "";
     try {
