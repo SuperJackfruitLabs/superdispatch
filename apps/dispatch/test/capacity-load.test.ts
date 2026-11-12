@@ -10,26 +10,26 @@ const BOARD = "brd_00000000000000b1";
 const CARD = "card_00000000000000c1";
 const T0 = Date.parse("2026-11-13T09:00:00.000Z");
 
-describe("an agent at its concurrency whose station reads idle", () => {
-  /** A rostered candidate SuperPipeline judged, with its bridge row. */
-  const candidate = (
-    agentId: string,
-    reasons: string[],
-    row: { ready: boolean; busy: boolean },
-  ): CandidateFacts => ({
-    agentId,
-    principalId: `prn_${agentId}`,
-    pipeline: { eligible: reasons.length === 0, reasons },
-    roster: { stationId: `stn_${agentId}`, enabled: true },
-    load: rosterLoad(agentId, {
-      enabled: true,
-      ...row,
-      lastDispatchedAt: null,
-    }),
-    history: { settled: 0, claimed: 0, noShowsAtMs: [] },
-    holds: 0,
-  });
+/** A rostered candidate SuperPipeline judged, with its bridge row. */
+const candidate = (
+  agentId: string,
+  reasons: string[],
+  row: { ready: boolean; busy: boolean },
+): CandidateFacts => ({
+  agentId,
+  principalId: `prn_${agentId}`,
+  pipeline: { eligible: reasons.length === 0, reasons },
+  roster: { stationId: `stn_${agentId}`, enabled: true },
+  load: rosterLoad(agentId, {
+    enabled: true,
+    ...row,
+    lastDispatchedAt: null,
+  }),
+  history: { settled: 0, claimed: 0, noShowsAtMs: [] },
+  holds: 0,
+});
 
+describe("an agent at its concurrency whose station reads idle", () => {
   test("is waited for: unhealthy and at capacity, while busy is false, is load", () => {
     // The staging proof's B: the bridge answered not ready because the agent held its board's
     // concurrency, and its station read not busy. A may not take the card at all.

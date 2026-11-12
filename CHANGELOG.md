@@ -85,5 +85,10 @@ lastSeenAt, source}`; health and idle (`inFlight < capacity`) are read from it, 
 - The operator API: opt a board in or out (`/v1/boards`), and read the decisions
   (`/v1/decisions`).
 - A container image, and a staging deploy that stays off until the host is ready.
+- The placement window: opting a board in sets its window on SuperPipeline
+  (`SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS`, 10 by default) and opting out sets none; a
+  `card.ready` from the relay places that card at once with the board's cached roster, which every
+  sweep refreshes. An agent SuperPipeline reports at its board's concurrency is waited for
+  (`waiting-on-load`) even while its station reads idle.
 - Releases run on the suite's shared release workflow: a `vX.Y.Z` tag checks that forge CI passed
   for the tag's commit and publishes release notes on GitHub.

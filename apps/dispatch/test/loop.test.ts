@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   MAX_CARDS_PER_PASS,
-  NUDGE_DELAY_MS,
   REDECIDE_AFTER_MS,
-  SWEEP_MAX_BACKOFF,
   DEFAULT_SUGGESTIONS,
   createLoop,
   ladderOf,
@@ -11,9 +9,13 @@ import {
   type SuggestionSettings,
   outcomeOf,
   shouldDecide,
-  startRunner,
   type Loop,
 } from "../src/loop/index.ts";
+import {
+  NUDGE_DELAY_MS,
+  SWEEP_MAX_BACKOFF,
+  startRunner,
+} from "../src/loop/runner.ts";
 import {
   SourceError,
   type Agentpod,
@@ -201,6 +203,9 @@ function world(
     },
     async clearReservation(_b, cardId) {
       calls.push(`clear ${cardId}`);
+    },
+    async setPlacementWindow(boardId, seconds) {
+      calls.push(`window ${boardId} ${seconds}`);
     },
     async agentLoad() {
       calls.push("agent-load");
@@ -1171,7 +1176,12 @@ describe("every board", () => {
     w.store.enableBoard("brd_00000000000000ee", new Date(T0).toISOString());
     w.store.disableBoard("brd_00000000000000ee", new Date(T0).toISOString());
     expect(await w.loop.passAll()).toEqual({ boards: 2, failedBoards: 1 });
-    expect(w.calls).toEqual([`board ${BOARD}`, "board brd_00000000000000ff"]);
+    // A board with nothing to place still has its roster read, in the background, for the cache.
+    expect(w.calls).toEqual([
+      `board ${BOARD}`,
+      `roster ${BOARD}`,
+      "board brd_00000000000000ff",
+    ]);
   });
 
   test("no board opted in: nothing is read", async () => {
@@ -1181,6 +1191,18 @@ describe("every board", () => {
     opted(w);
   });
 });
+
+/** The verbs a runner test does not drive: no pass of one card, no window to sync. */
+const idleLoop: Pick<Loop, "passCard" | "syncWindow"> = {
+  passCard: async (boardId) => ({
+    boardId,
+    settled: 0,
+    decided: 0,
+    reserved: 0,
+    deferred: 0,
+  }),
+  syncWindow: async () => {},
+};
 
 describe("the runner", () => {
   function scheduler() {
@@ -1217,6 +1239,7 @@ describe("the runner", () => {
     ];
     let passes = 0;
     const loop: Loop = {
+      ...idleLoop,
       suggest: () => ({ opened: 0, updated: 0, resolved: 0 }),
       passAll: async () => results[passes++] ?? { boards: 0, failedBoards: 0 },
       passBoard: async () => ({
@@ -1252,6 +1275,7 @@ describe("the runner", () => {
     const order: string[] = [];
     let release: () => void = () => {};
     const loop: Loop = {
+      ...idleLoop,
       suggest: () => ({ opened: 0, updated: 0, resolved: 0 }),
       passAll: () =>
         new Promise((resolve) => {

@@ -1,9 +1,15 @@
 /**
- * `POST /v1/relay/events`: the suite's event relay delivering a SuperPipeline event. SuperPipeline
- * relays no "a card is ready" event, so a delivery here is a nudge, not a fact: something happened
- * on that board (a gate approved, a held approval released, a check failed and returned a card), so
- * the loop looks at the board now rather than at the next sweep. The sweep stays the guarantee;
- * nothing is read from the event's data.
+ * `POST /v1/relay/events`: the suite's event relay delivering a SuperPipeline event.
+ *
+ * - `card.ready` (a card became ready to claim on a board with a placement window): the card's id
+ *   is read from the event's data and the card is placed at once, alone, inside the window
+ *   SuperPipeline holds it back from pull for. It is a hint, not a fact: the loop reads the board
+ *   before it places anything.
+ * - Any other event is a nudge: something happened on that board (a gate approved, a held approval
+ *   released, a check failed and returned a card), so the loop looks at the board soon rather than
+ *   at the next sweep. Nothing is read from its data.
+ *
+ * The sweep stays the guarantee.
  *
  * Each delivery is a CloudEvent in HTTP binary mode, signed in `x-treaty-signature` over the
  * timestamp, the event id and the exact body, and checked with treaty's `verifyDelivery` before
@@ -33,12 +39,42 @@ export const MAX_RELAY_BODY = 256 * 1024;
 /** The source SuperPipeline gives a board's events. */
 const BOARD_SOURCE = /^\/superpipeline\/boards\/(brd_[0-9a-f]{16})$/;
 
+/** A SuperPipeline card id. */
+const CARD_ID = /^card_[0-9a-f]{16}$/;
+
+/** The card a `card.ready` names, or null when the event is not one or names none it can read. */
+export function readyCardOf(type: string, body: Uint8Array): string | null {
+  let entity = "";
+  let verb = "";
+  try {
+    ({ entity, verb } = parseType(type));
+  } catch {
+    return null;
+  }
+  if (entity !== "card" || verb !== "ready") return null;
+  try {
+    const data: unknown = JSON.parse(new TextDecoder().decode(body));
+    const cardId =
+      typeof data === "object" && data !== null && "cardId" in data
+        ? data.cardId
+        : undefined;
+    return typeof cardId === "string" && CARD_ID.test(cardId) ? cardId : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface RelayDeps {
   /** The secret the relay signs this service's deliveries with. */
   secret: string;
   store: Pick<Store, "getBoard">;
-  /** Told of each board an accepted event was about. Must not throw or wait. */
+  /** Told of each board an accepted event was about, but a `card.ready`. Must not throw or wait. */
   onBoardEvent?: (boardId: string) => void;
+  /**
+   * Told of each card an accepted `card.ready` named. Must not throw or wait. Unset, a `card.ready`
+   * is a nudge like any other event.
+   */
+  onCardReady?: (boardId: string, cardId: string) => void;
   log?: (line: string) => void;
   /** Test seam for the signature's clock. */
   nowMs?: () => number;
@@ -88,7 +124,10 @@ export function createRelayHandler(deps: RelayDeps) {
     if (deps.store.getBoard(boardId)?.enabled !== true) {
       return Response.json({ status: "ignored" });
     }
-    deps.onBoardEvent?.(boardId);
+    const cardId = readyCardOf(attributes.type ?? "", bytes);
+    if (cardId !== null && deps.onCardReady !== undefined)
+      deps.onCardReady(boardId, cardId);
+    else deps.onBoardEvent?.(boardId);
     return Response.json({ status: "accepted" });
   };
 }

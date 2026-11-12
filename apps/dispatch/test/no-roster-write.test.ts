@@ -69,7 +69,7 @@ describe("no client can edit a roster", () => {
     ]);
   });
 
-  test("SuperPipeline's client reads, and writes only the reservation it holds and lets lapse", async () => {
+  test("SuperPipeline's client reads, and writes only the reservation it holds and lets lapse, and the board's placement window", async () => {
     const { methods, requests } = await everyRequest((fetch) =>
       createSuperpipeline({
         baseUrl: "https://pipeline.example",
@@ -83,10 +83,11 @@ describe("no client can edit a roster", () => {
       "clearReservation",
       "eligibility",
       "reserve",
+      "setPlacementWindow",
     ]);
     const writes = requests.filter((r) => !r.startsWith("GET "));
     expect(writes.length).toBeGreaterThan(0);
-    for (const w of writes) expect(w).toMatch(/\/reservation$/);
+    for (const w of writes) expect(w).toMatch(/\/(reservation|scheduling)$/);
   });
 
   test("Accounts' client asks for this service's token and the policy's answer, and nothing else", async () => {
@@ -149,8 +150,14 @@ describe("no client can edit a roster", () => {
       ).requests,
     ];
     expect(all.filter((r) => SUPPLY_PATH.test(r))).toEqual([]);
+    // The only writes: a reservation that lapses, and the board's placement window.
     expect(
-      all.filter((r) => !r.startsWith("GET ") && !r.endsWith("/reservation")),
+      all.filter(
+        (r) =>
+          !r.startsWith("GET ") &&
+          !r.endsWith("/reservation") &&
+          !r.endsWith("/scheduling"),
+      ),
     ).toEqual([]);
   });
 

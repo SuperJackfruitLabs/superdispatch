@@ -4,8 +4,9 @@
  */
 import { randomBytes } from "node:crypto";
 import { loadConfig } from "./config.ts";
-import { createLoop, startRunner } from "./loop/index.ts";
+import { createLoop } from "./loop/index.ts";
 import { createPolicyGate } from "./loop/policy.ts";
+import { startRunner } from "./loop/runner.ts";
 import { SERVICE, createHandler } from "./routes/index.ts";
 import {
   createAccounts,
@@ -79,6 +80,9 @@ const loop = createLoop({
     store,
     log: console.log,
   }),
+  placementWindowSeconds: config.placementWindowSeconds,
+  // The sweep refreshes every board's roster; a card placed alone may use one up to two sweeps old.
+  rosterMaxAgeMs: 2 * config.sweepSeconds * 1000,
   suggestions: {
     everyMs: config.suggestEverySeconds * 1000,
     windowMs: config.suggestWindowHours * 3600 * 1000,
@@ -92,7 +96,14 @@ const runner = startRunner(loop, { intervalMs: config.sweepSeconds * 1000 });
 
 const server = Bun.serve({
   port: config.port,
-  fetch: createHandler({ config, store, onBoard: runner.nudge, learned }),
+  fetch: createHandler({
+    config,
+    store,
+    onBoard: runner.nudge,
+    onCardReady: (boardId, cardId) => runner.cardReady(boardId, cardId),
+    onBoardChanged: (boardId) => runner.boardChanged(boardId),
+    learned,
+  }),
 });
 console.log(
   `${SERVICE}: listening on :${server.port}, sweeping every ${config.sweepSeconds}s, learned routing ${config.learned}`,

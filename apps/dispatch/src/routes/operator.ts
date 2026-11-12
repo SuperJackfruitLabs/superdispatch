@@ -6,9 +6,11 @@
  * Boards (which boards SuperDispatch places cards on; none until one is opted in):
  *
  * - `GET /v1/boards`: every board opted in, enabled or not.
- * - `PUT /v1/boards/:boardId`: opt a board in, or enable it again. No body.
+ * - `PUT /v1/boards/:boardId`: opt a board in, or enable it again. No body. Its placement window
+ *   is set on SuperPipeline (`SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS`).
  * - `DELETE /v1/boards/:boardId`: opt it out. The row stays, so it can be listed and enabled
- *   again; decisions already made stay readable, and holds already made lapse on their own.
+ *   again; decisions already made stay readable, holds already made lapse on their own, and its
+ *   placement window goes back to none.
  * - `GET /v1/boards/:boardId`: one board.
  *
  * Decisions (the record of every placement, newest first):
@@ -72,6 +74,8 @@ export interface OperatorDeps {
   >;
   /** Told of a board just opted in, so it is looked at without waiting for the sweep. */
   onBoardEnabled?: (boardId: string) => void;
+  /** Told of a board just opted in or out, so its placement window follows. */
+  onBoardChanged?: (boardId: string) => void;
   now: () => number;
   log?: (line: string) => void;
 }
@@ -120,6 +124,7 @@ export function createOperatorHandler(deps: OperatorDeps) {
     if (request.method === "PUT") {
       const board = deps.store.enableBoard(boardId, at);
       log(`boards: ${boardId} enabled`);
+      deps.onBoardChanged?.(boardId);
       deps.onBoardEnabled?.(boardId);
       return Response.json({ board: boardView(board) });
     }
@@ -127,6 +132,7 @@ export function createOperatorHandler(deps: OperatorDeps) {
       const board = deps.store.disableBoard(boardId, at);
       if (board === null) return notFound();
       log(`boards: ${boardId} disabled`);
+      deps.onBoardChanged?.(boardId);
       return Response.json({ board: boardView(board) });
     }
     if (request.method === "GET") {

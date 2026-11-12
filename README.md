@@ -354,38 +354,39 @@ bun apps/dispatch/src/main.ts
 curl http://127.0.0.1:8796/healthz
 ```
 
-| Setting                                | What it is                                                                                                    |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `SUPERPIPELINE_URL`                    | Where SuperPipeline's API answers: the ready cards and the eligibility read for each                          |
-| `ORG_PLANE_URL`                        | Where the organization plane (Accounts) answers                                                               |
-| `ORG_PLANE_SERVICE_CREDENTIAL`         | This service's credential there, `svc_<20 hex>:<secret>`                                                      |
-| `AGENTPOD_URL`                         | Where AgentPod's API answers: the roster, and each agent's load and health                                    |
-| `AGENTPOD_AUDIENCE`                    | The hub's `ORG_PLANE_AUDIENCE`, when it differs from `AGENTPOD_URL`; that URL when unset                      |
-| `TREATY_RELAY_DELIVERY_SECRET`         | The secret the event relay signs its deliveries to this service with                                          |
-| `SUPERDISPATCH_OPERATOR_TOKEN_SHA256`  | The SHA-256 (64 hex digits) of the operator's bearer token; the token itself is not kept                      |
-| `SUPERDISPATCH_DATA_DIR`               | Where the store keeps its database; `/data` when unset; absolute                                              |
-| `SUPERDISPATCH_SWEEP_SECONDS`          | Seconds between two sweeps of every opted-in board, 5 to 3600; 30 when unset                                  |
-| `SUPERDISPATCH_RESERVATION_SECONDS`    | Seconds the winner tier holds a card, 10 to 300; 60 when unset                                                |
-| `SUPERDISPATCH_RUNNER_UP_SECONDS`      | Seconds each runner-up hold lasts, 10 to 300; 30 when unset                                                   |
-| `SUPERDISPATCH_TOP_K`                  | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset                                  |
-| `SUPERDISPATCH_FAIRNESS`               | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset                     |
-| `SUPERDISPATCH_CANDIDATES`             | `roster` (the roster alone) or `all` (also agents with their own token that report load); `roster` when unset |
-| `SUPERDISPATCH_STATION_FILTERS`        | `on` (a stage's placement filters on AgentPod's capability registry) or `off`; `on` when unset                |
-| `SUPERDISPATCH_MIN_PROOF`              | The weakest registry proof that satisfies a need: `probed`, `installed` or `declared`; `declared` when unset  |
-| `SUPERDISPATCH_POLICY`                 | `off` or `on` (ask Accounts' dispatch policy, which needs `policy:decide`); `off` when unset                  |
-| `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`  | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset     |
-| `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`   | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                       |
-| `SUPERDISPATCH_STALL_MINUTES`          | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset          |
-| `SUPERDISPATCH_LEARNED`                | `off`, `shadow` (record the model's choice, hold the formula's) or `on` (behind the gate); `off` when unset   |
-| `SUPERDISPATCH_LEARNED_MIN_ROWS`       | The fewest training rows a model needs to place, 1 to 10000000; 500 when unset                                |
-| `SUPERDISPATCH_LEARNED_MIN_SHADOW`     | The fewest settled shadow decisions a model needs to place, 1 to 1000000; 100 when unset                      |
-| `SUPERDISPATCH_LEARNED_MARGIN_PCT`     | Points a model must beat the formula by in shadow to place, 0 to 100; 5 when unset                            |
-| `SUPERWITNESS_URL`                     | Where SuperWitness's API answers, for each stage's history; unset, the score leaves it out                    |
-| `SUPERWITNESS_AUDIENCE`                | SuperWitness's public URL, when it differs from `SUPERWITNESS_URL`; that URL when unset                       |
-| `SUPERDISPATCH_HISTORY_DAYS`           | Days of a stage's runs read, 1 to 365; 30 when unset                                                          |
-| `SUPERDISPATCH_HISTORY_MIN_SAMPLE`     | The fewest runs (or verdicts) a stage rate is read from, 1 to 100; 3 when unset                               |
-| `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS` | Days in which a run's weight halves, 1 to 365; 7 when unset                                                   |
-| `PORT`                                 | Where it listens; 8796 when unset                                                                             |
+| Setting                                  | What it is                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `SUPERPIPELINE_URL`                      | Where SuperPipeline's API answers: the ready cards and the eligibility read for each                          |
+| `ORG_PLANE_URL`                          | Where the organization plane (Accounts) answers                                                               |
+| `ORG_PLANE_SERVICE_CREDENTIAL`           | This service's credential there, `svc_<20 hex>:<secret>`                                                      |
+| `AGENTPOD_URL`                           | Where AgentPod's API answers: the roster, and each agent's load and health                                    |
+| `AGENTPOD_AUDIENCE`                      | The hub's `ORG_PLANE_AUDIENCE`, when it differs from `AGENTPOD_URL`; that URL when unset                      |
+| `TREATY_RELAY_DELIVERY_SECRET`           | The secret the event relay signs its deliveries to this service with                                          |
+| `SUPERDISPATCH_OPERATOR_TOKEN_SHA256`    | The SHA-256 (64 hex digits) of the operator's bearer token; the token itself is not kept                      |
+| `SUPERDISPATCH_DATA_DIR`                 | Where the store keeps its database; `/data` when unset; absolute                                              |
+| `SUPERDISPATCH_SWEEP_SECONDS`            | Seconds between two sweeps of every opted-in board, 5 to 3600; 30 when unset                                  |
+| `SUPERDISPATCH_RESERVATION_SECONDS`      | Seconds the winner tier holds a card, 10 to 300; 60 when unset                                                |
+| `SUPERDISPATCH_RUNNER_UP_SECONDS`        | Seconds each runner-up hold lasts, 10 to 300; 30 when unset                                                   |
+| `SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS` | The placement window set on each board opted in, 0 to 30 (0 sets none); 10 when unset                         |
+| `SUPERDISPATCH_TOP_K`                    | The most holds a card's ladder makes before any match, 1 to 10; 3 when unset                                  |
+| `SUPERDISPATCH_FAIRNESS`                 | `round-robin` (a card from each board in turn) or `board-order`; `round-robin` when unset                     |
+| `SUPERDISPATCH_CANDIDATES`               | `roster` (the roster alone) or `all` (also agents with their own token that report load); `roster` when unset |
+| `SUPERDISPATCH_STATION_FILTERS`          | `on` (a stage's placement filters on AgentPod's capability registry) or `off`; `on` when unset                |
+| `SUPERDISPATCH_MIN_PROOF`                | The weakest registry proof that satisfies a need: `probed`, `installed` or `declared`; `declared` when unset  |
+| `SUPERDISPATCH_POLICY`                   | `off` or `on` (ask Accounts' dispatch policy, which needs `policy:decide`); `off` when unset                  |
+| `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`    | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset     |
+| `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`     | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                       |
+| `SUPERDISPATCH_STALL_MINUTES`            | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset          |
+| `SUPERDISPATCH_LEARNED`                  | `off`, `shadow` (record the model's choice, hold the formula's) or `on` (behind the gate); `off` when unset   |
+| `SUPERDISPATCH_LEARNED_MIN_ROWS`         | The fewest training rows a model needs to place, 1 to 10000000; 500 when unset                                |
+| `SUPERDISPATCH_LEARNED_MIN_SHADOW`       | The fewest settled shadow decisions a model needs to place, 1 to 1000000; 100 when unset                      |
+| `SUPERDISPATCH_LEARNED_MARGIN_PCT`       | Points a model must beat the formula by in shadow to place, 0 to 100; 5 when unset                            |
+| `SUPERWITNESS_URL`                       | Where SuperWitness's API answers, for each stage's history; unset, the score leaves it out                    |
+| `SUPERWITNESS_AUDIENCE`                  | SuperWitness's public URL, when it differs from `SUPERWITNESS_URL`; that URL when unset                       |
+| `SUPERDISPATCH_HISTORY_DAYS`             | Days of a stage's runs read, 1 to 365; 30 when unset                                                          |
+| `SUPERDISPATCH_HISTORY_MIN_SAMPLE`       | The fewest runs (or verdicts) a stage rate is read from, 1 to 100; 3 when unset                               |
+| `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS`   | Days in which a run's weight halves, 1 to 365; 7 when unset                                                   |
+| `PORT`                                   | Where it listens; 8796 when unset                                                                             |
 
 A missing or malformed setting stops it before it listens, naming the setting, never its value.
 
@@ -409,7 +410,19 @@ What it needs of the others:
   (`SUPERWITNESS_REPORT_STAGE`).
 - **The event relay** (optional): a subscriber for `evt.*.superpipeline.>` delivering to
   `/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET`. Without it the sweep alone
-  places cards.
+  places cards. A `card.ready` places its card at once, alone, with the board's cached roster;
+  any other event looks at its board two seconds later.
+
+### The placement window
+
+AgentPod's bridge claims a ready card within seconds, so a sweep alone loses most cards to pull.
+When the operator opts a board in, SuperDispatch sets the board's placement window on SuperPipeline
+(`PUT /v1/boards/:id/scheduling`, `SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS`, 10 by default; 0 on
+opt-out). Inside it, SuperPipeline holds a card that just became ready back from pull and relays
+`card.ready`; SuperDispatch places that card on delivery, and a hold made inside the window is
+claimable by its agent at once. AgentPod's roster read probes every station and takes seconds, so
+the card path uses the roster the sweep cached (refreshed every sweep, read again when older than
+two sweeps). If SuperDispatch is absent the window simply ends and pull proceeds.
 
 ## Operator API
 

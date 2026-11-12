@@ -45,6 +45,13 @@ export const DEFAULT_SWEEP_SECONDS = 30;
  */
 export const DEFAULT_RESERVATION_SECONDS = 60;
 
+/**
+ * The placement window SuperDispatch sets on a board it opts in, when
+ * `SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS` is unset: how long SuperPipeline holds a card that just
+ * became ready back from pull, so it can be placed first. SuperPipeline takes 0 to 30; 0 sets none.
+ */
+export const DEFAULT_PLACEMENT_WINDOW_SECONDS = 10;
+
 /** How long each runner-up hold lasts when `SUPERDISPATCH_RUNNER_UP_SECONDS` is unset. */
 export const DEFAULT_RUNNER_UP_SECONDS = 30;
 
@@ -185,6 +192,8 @@ export interface Config {
   reservationSeconds: number;
   /** Seconds each runner-up hold lasts. */
   runnerUpSeconds: number;
+  /** Seconds of placement window set on each board opted in; 0 sets none. */
+  placementWindowSeconds: number;
   /** The most holds a card's ladder makes before it is open to any match. */
   topK: number;
   /** How a sweep orders cards across boards. */
@@ -322,6 +331,14 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     DEFAULT_RUNNER_UP_SECONDS,
     10,
     300,
+    problems,
+  );
+  const placementWindowSeconds = wholeNumber(
+    env,
+    "SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS",
+    DEFAULT_PLACEMENT_WINDOW_SECONDS,
+    0,
+    30,
     problems,
   );
   const topK = wholeNumber(
@@ -479,6 +496,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     sweepSeconds,
     reservationSeconds,
     runnerUpSeconds,
+    placementWindowSeconds,
     topK,
     fairness,
     candidates,
