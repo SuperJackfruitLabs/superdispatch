@@ -57,7 +57,7 @@
  * Publishing suggestions to chat is a later slice; until then they are read on the operator API
  * (`GET /v1/suggestions`).
  */
-import type { Fairness } from "../config.ts";
+import type { Fairness, Proof, StationFilterMode } from "../config.ts";
 import type {
   Outcome,
   Store,
@@ -74,6 +74,8 @@ import {
   type BoardView,
   type CardView,
   type RosterEntry,
+  type StageNeeds,
+  type StationCaps,
   type Superpipeline,
 } from "../sources/index.ts";
 import { randomBytes } from "node:crypto";
@@ -210,6 +212,13 @@ export interface LoopDeps {
    * reads every agent's load from SuperPipeline once, for the agents with no bridge row.
    */
   candidateSet?: CandidateSet;
+  /**
+   * Whether a stage's `placement` filters candidates on AgentPod's capability registry; `on` when
+   * unset. On, a pass with a card whose stage states one reads the registry once.
+   */
+  stationFilters?: StationFilterMode;
+  /** The weakest registry proof that satisfies a need; `declared` when unset. */
+  minProof?: Proof;
   /** When the roster suggestions are computed; `DEFAULT_SUGGESTIONS` when unset. */
   suggestions?: SuggestionSettings;
   /** A new suggestion id; `sug_` and random hex when unset. */
@@ -344,6 +353,8 @@ interface Gathered {
   history: ReturnType<Store["boardHistory"]>;
   /** What each stage of the board asks for, by key. */
   requires: Map<string, Capability>;
+  /** What each stage says a station needs, by key; stages that state nothing are absent. */
+  needs: Map<string, StageNeeds>;
 }
 
 export function createLoop(deps: LoopDeps): Loop {
@@ -425,6 +436,34 @@ export function createLoop(deps: LoopDeps): Loop {
     }
   }
 
+  const stationFilters = deps.stationFilters ?? "on";
+
+  /**
+   * AgentPod's capability registry, by station, when a queued card's stage states a placement and
+   * the filters are on; null otherwise, or when it cannot be read: then no station filter runs this
+   * pass and the stated needs go unchecked, which the log says.
+   */
+  async function registry(
+    queued: readonly Gathered[],
+  ): Promise<Map<string, StationCaps> | null> {
+    if (stationFilters === "off") return null;
+    if (!queued.some((g) => g.cards.some((c) => g.needs.has(c.stageKey))))
+      return null;
+    try {
+      const read = await agentpod.stationCapabilities();
+      if (read === null)
+        log(
+          "loop: AgentPod has no capability registry; stage placements unchecked",
+        );
+      return read;
+    } catch (error) {
+      log(
+        `loop: capability registry unread (${describe(error)}); stage placements unchecked`,
+      );
+      return null;
+    }
+  }
+
   /** Read a board, settle what it held, queue its ready cards. Throws when the board is unread. */
   async function gather(boardId: string, nowMs: number): Promise<Gathered> {
     const pass: BoardPass = {
@@ -442,6 +481,11 @@ export function createLoop(deps: LoopDeps): Loop {
       rosterByPrincipal: new Map(),
       history: new Map(),
       requires: new Map(board.stages.map((st) => [st.key, st.requires])),
+      needs: new Map(
+        board.stages.flatMap((st) =>
+          st.placement !== null ? [[st.key, st.placement] as const] : [],
+        ),
+      ),
     };
 
     const cards = new Map(board.cards.map((c) => [c.id, c]));
@@ -511,6 +555,7 @@ export function createLoop(deps: LoopDeps): Loop {
     );
     const holds = store.liveHolds(nowIso);
     const direct = await directLoads();
+    const stations = await registry(queues.map((q) => q.g));
     const byBoard = new Map(queues.map((q) => [q.boardId, q.g]));
     const order =
       fairness === "round-robin"
@@ -526,6 +571,7 @@ export function createLoop(deps: LoopDeps): Loop {
         holds,
         stages,
         direct,
+        stations,
       });
     }
     return gathered.map((g) => g.pass);
@@ -541,6 +587,7 @@ export function createLoop(deps: LoopDeps): Loop {
       holds: Map<string, number>;
       stages: Map<string, Promise<Map<string, StageRun[]> | null>>;
       direct: Map<string, DirectLoadEntry>;
+      stations: Map<string, StationCaps> | null;
     },
   ): Promise<void> {
     const { boardId } = g.pass;
@@ -566,6 +613,8 @@ export function createLoop(deps: LoopDeps): Loop {
       at.nowMs,
       at.stages,
     );
+    const needs = g.needs.get(card.stageKey) ?? null;
+    const registryRead = needs !== null && at.stations !== null;
     const candidates: CandidateFacts[] = eligibility.agents.map((a) => {
       const entry =
         a.principalId === null
@@ -604,6 +653,15 @@ export function createLoop(deps: LoopDeps): Loop {
                   ? []
                   : (stageRuns.get(a.principalId) ?? []),
             }),
+        // Its station's registry row, only when the stage states a need and the registry was read.
+        ...(registryRead
+          ? {
+              station:
+                entry === undefined
+                  ? null
+                  : (at.stations?.get(entry.stationId) ?? null),
+            }
+          : {}),
       };
     });
 
@@ -618,6 +676,8 @@ export function createLoop(deps: LoopDeps): Loop {
       tiers,
       history,
       candidateSet,
+      needs: registryRead ? needs : null,
+      ...(deps.minProof !== undefined ? { minProof: deps.minProof } : {}),
     });
     if (
       decision.kind === "none" &&

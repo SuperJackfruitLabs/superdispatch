@@ -74,18 +74,21 @@ function world(
       ownerKind: "capability",
       hasRequires: false,
       requires: { all: ["code"], any: [] },
+      placement: null,
     },
     {
       key: "approve",
       ownerKind: "human",
       hasRequires: false,
       requires: { all: [], any: [] },
+      placement: null,
     },
     {
       key: "pinned",
       ownerKind: "agent",
       hasRequires: false,
       requires: { all: [], any: [] },
+      placement: null,
     },
   ];
   const boards = new Map<string, Map<string, CardView>>([
@@ -206,6 +209,10 @@ function world(
       calls.push(`roster ${boardId}`);
       if (rosterFails) throw new SourceError("agentpod", 404, "Not Found");
       return [...roster.values()];
+    },
+    async stationCapabilities() {
+      calls.push("station-capabilities");
+      return null;
     },
   };
   const loop = createLoop({

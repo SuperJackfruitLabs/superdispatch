@@ -3,6 +3,7 @@ import {
   DEFAULT_HISTORY,
   DEFAULT_TIERS,
   FILTERS,
+  STATION_FILTERS,
   MIN_CANDIDATES,
   NEVER_DISPATCHED_SECONDS,
   NO_SHOW_LIMIT,
@@ -49,17 +50,21 @@ function rejectedBy(agentId: string, filter: FilterName): CandidateRecord {
 }
 
 describe("the reason codes", () => {
-  test("are the six the charter names, the no-show refinement's, the one-hold rule's, the ladder's and SuperPipeline's other verdict, one per filter", () => {
+  test("are the six the charter names, the no-show refinement's, the one-hold rule's, the ladder's, SuperPipeline's other verdict and the four station filters', one per filter", () => {
     expect([...REJECTION_REASONS].sort()).toEqual([
       "at-capacity",
       "capability-missing",
+      "credential-missing",
       "grant-denied",
       "holding-another",
+      "isolation-too-weak",
+      "model-mismatch",
       "not-claimable",
       "not-idle",
       "not-on-roster",
       "passed-over",
       "recently-no-show",
+      "tool-missing",
       "unhealthy",
     ]);
     expect(new Set(REJECTION_REASONS).size).toBe(ALL.length);
@@ -408,7 +413,7 @@ describe("place: the filters", () => {
     expect(verdicts(d).agt_x).toBe("capability-missing,grant-denied,not-idle");
     expect(
       d.candidates.find((r) => r.candidate.agentId === "agt_x")?.filters.length,
-    ).toBe(Object.keys(FILTERS).length);
+    ).toBe(Object.keys(FILTERS).length - STATION_FILTERS.length);
   });
 
   test(`no-shows count only inside the window, and only from ${NO_SHOW_LIMIT}`, () => {

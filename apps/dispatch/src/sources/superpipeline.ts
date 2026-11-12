@@ -27,6 +27,7 @@
  * reservation answers its refusal instead of throwing: it is an outcome to record.
  */
 import type { ServiceTokens } from "./accounts.ts";
+import { ISOLATION_ORDER, type StageNeeds } from "./capabilities.ts";
 import {
   SourceError,
   call,
@@ -52,6 +53,11 @@ export interface StageView {
    * capability. Both empty when the stage asks for none.
    */
   requires: { all: string[]; any: string[] };
+  /**
+   * What a station needs to work the stage (the stage's `placement`), for the station filters;
+   * null when the stage states none, or this SuperPipeline has no such field.
+   */
+  placement: StageNeeds | null;
 }
 
 /** A card, as far as placement reads it. */
@@ -140,11 +146,35 @@ function stageOf(raw: unknown): StageView | null {
     key,
     ownerKind,
     hasRequires,
+    placement: placementOf(field(raw, "placement")),
     requires:
       !hasRequires && ownerKind === "capability" && owner !== null
         ? { all: [owner], any: [] }
         : { all, any },
   };
+}
+
+/**
+ * A stage's placement, or null when it states nothing. An isolation level this service does not
+ * know is kept as the strongest, so an unknown need is never read as no need.
+ */
+export function placementOf(raw: unknown): StageNeeds | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const iso = str(field(raw, "isolation"));
+  const lists = {
+    models: strings(field(raw, "models")),
+    tools: strings(field(raw, "tools")),
+    credentials: strings(field(raw, "credentials")),
+  };
+  const needs: StageNeeds = {
+    ...(iso !== null
+      ? { isolation: ISOLATION_ORDER.find((l) => l === iso) ?? "sandbox" }
+      : {}),
+    ...(lists.models.length > 0 ? { models: lists.models } : {}),
+    ...(lists.tools.length > 0 ? { tools: lists.tools } : {}),
+    ...(lists.credentials.length > 0 ? { credentials: lists.credentials } : {}),
+  };
+  return Object.keys(needs).length > 0 ? needs : null;
 }
 
 function cardOf(raw: unknown): CardView | null {

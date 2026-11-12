@@ -64,6 +64,8 @@ const loop = createLoop({
   },
   fairness: config.fairness,
   candidateSet: config.candidates,
+  stationFilters: config.stationFilters,
+  minProof: config.minProof,
   suggestions: {
     everyMs: config.suggestEverySeconds * 1000,
     windowMs: config.suggestWindowHours * 3600 * 1000,
