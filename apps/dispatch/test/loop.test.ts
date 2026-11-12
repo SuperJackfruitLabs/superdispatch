@@ -190,6 +190,10 @@ function world(
     async clearReservation(_b, cardId) {
       calls.push(`clear ${cardId}`);
     },
+    async agentLoad() {
+      calls.push("agent-load");
+      return [];
+    },
   };
   const agentpod: Agentpod = {
     async roster(boardId) {

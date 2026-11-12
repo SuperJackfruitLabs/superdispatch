@@ -8,6 +8,8 @@
  *   and when it last took work;
  * - SuperWitness (`superwitness.ts`), when it is configured: how the finished runs at a board stage
  *   turned out and were judged, for each stage's history in the score;
+ * - the shared shape of an agent's load and health (`load.ts`), which both the roster and
+ *   SuperPipeline's load read produce, so placement judges every candidate by one rule;
  * - Accounts, the organization plane (`accounts.ts`): this service's own token for each of them,
  *   from its one service credential.
  *
@@ -18,5 +20,6 @@
 export * from "./accounts.ts";
 export * from "./agentpod.ts";
 export * from "./http.ts";
+export * from "./load.ts";
 export * from "./superpipeline.ts";
 export * from "./superwitness.ts";

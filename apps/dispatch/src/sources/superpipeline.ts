@@ -12,6 +12,12 @@
  *   `dispatch:reserve`): hold the card for the chosen agent; it lapses on its own.
  *   `DELETE …/reservation` clears a hold.
  *
+ * - `GET /v1/agents/load` (scope `dispatch:read`): every agent of the workspace with the cards it
+ *   holds over every board (`inFlight`), its `capacity` and its latest run heartbeat
+ *   (`lastHeartbeatAt`): the load and health of an agent that claims with its own token, read
+ *   once a pass when the candidate set is `all`. A SuperPipeline without it answers 404, and no
+ *   agent off the roster becomes a candidate.
+ *
  * The reservation verb is SuperPipeline's step 1 of the scheduler plan. Until a SuperPipeline
  * deployment has it, `PUT` answers 404 or 405, the loop records the decision as `not-reserved`,
  * and cards are claimed by pull exactly as before.
@@ -83,6 +89,18 @@ export interface EligibilityView {
   }>;
 }
 
+/** One agent's load as SuperPipeline reports it; `directLoad` turns it into the shared shape. */
+export interface DirectLoadEntry {
+  agentId: string;
+  principalId: string | null;
+  /** Cards it holds over every board; null when the answer had no whole number for it. */
+  inFlight: number | null;
+  /** The most cards it may hold at once; null when not reported. */
+  capacity: number | null;
+  /** Its latest run heartbeat on any board, ISO; null when it never ran. */
+  lastHeartbeatAt: string | null;
+}
+
 export type ReserveAnswer =
   | { ok: true; reservedUntil: string }
   | { ok: false; status: number; code: string };
@@ -96,6 +114,8 @@ export interface Superpipeline {
     hold: { agentId: string; ttlSeconds: number; decisionId: string },
   ): Promise<ReserveAnswer>;
   clearReservation(boardId: string, cardId: string): Promise<void>;
+  /** Every agent's load over the workspace (`GET /v1/agents/load`). Throws `SourceError`. */
+  agentLoad(): Promise<DirectLoadEntry[]>;
 }
 
 const strings = (value: unknown): string[] =>
@@ -245,6 +265,33 @@ export function createSuperpipeline(
         status: answer.status,
         code: errorCode(answer.json) ?? `HTTP_${answer.status}`,
       };
+    },
+
+    async agentLoad() {
+      const agents = field(
+        okBody("superpipeline", await authed("GET", "/v1/agents/load")),
+        "agents",
+      );
+      if (!Array.isArray(agents)) {
+        throw new SourceError("superpipeline", 200, "malformed_response");
+      }
+      const whole = (value: unknown): number | null =>
+        typeof value === "number" && Number.isInteger(value) && value >= 0
+          ? value
+          : null;
+      return agents.flatMap((a): DirectLoadEntry[] => {
+        const agentId = str(field(a, "agentId"));
+        if (agentId === null) return [];
+        return [
+          {
+            agentId,
+            principalId: str(field(a, "principalId")),
+            inFlight: whole(field(a, "inFlight")),
+            capacity: whole(field(a, "capacity")),
+            lastHeartbeatAt: isoTime(field(a, "lastHeartbeatAt")),
+          },
+        ];
+      });
     },
 
     async clearReservation(boardId, cardId) {
