@@ -9,6 +9,10 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
   `model-mismatch`, `tool-missing` or `credential-missing` and recording what the station lacks.
   Off for a stage that states nothing; unchecked when the registry cannot be read. Settings
   `SUPERDISPATCH_STATION_FILTERS` (`on`/`off`) and `SUPERDISPATCH_MIN_PROOF`.
+- Code-quality ratchets (`docs/code-quality.md`): lint is type-aware oxlint (with
+  oxlint-tsgolint) whose per-rule counts may fall but never rise, and the architecture test also
+  refuses a run-time import cycle and a source file over 1,000 lines. No change to what the
+  service does.
 - The service skeleton: it starts, checks its settings, opens its store and answers a health
   check.
 - Placement: for each ready card on an opted-in board it filters every agent (on AgentPod's
