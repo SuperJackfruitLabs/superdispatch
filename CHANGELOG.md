@@ -10,6 +10,17 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
   has what the lane's stations lack), `add-station` (nobody has it) and `raise-capacity` (every
   capable agent at its board's concurrency). Each names its evidence, its target, its estimated
   effect and the verb a person would use. SuperDispatch changes no station and files no request.
+- Learned routing, off by default. Every settled decision is now exported as labelled rows, one
+  per candidate (`GET /v1/dataset`, schema 1: filter results, score terms, stage history, tier,
+  board, stage, capability, hour, pool load, and a label from `won-claimed`, `won-expired`,
+  `won-claimed-by-other`, `lost-claimed`, `lost`, `void`). `POST /v1/models/train` fits a small
+  logistic regression on it (no dependency, deterministic) and stores it as a version with its
+  holdout AUC, accuracy, log loss and calibration (`GET /v1/models`).
+  `SUPERDISPATCH_LEARNED=shadow` records what the latest model would have chosen beside each
+  decision without changing it, and `GET /v1/models/:id/shadow-report` compares the two against
+  outcomes. `on` holds the model's choice only past a gate (`SUPERDISPATCH_LEARNED_MIN_ROWS`, 500;
+  `SUPERDISPATCH_LEARNED_MIN_SHADOW`, 100; `SUPERDISPATCH_LEARNED_MARGIN_PCT`, 5), and otherwise
+  places by the formula and logs why. It needs data first: run it in shadow.
 - Station filters: a stage's `placement` (isolation, models, tools, credentials) filters
   candidates on AgentPod's capability registry, rejecting with `isolation-too-weak`,
   `model-mismatch`, `tool-missing` or `credential-missing` and recording what the station lacks.
