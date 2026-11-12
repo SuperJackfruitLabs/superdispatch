@@ -5,6 +5,8 @@ import {
   REDECIDE_AFTER_MS,
   SWEEP_MAX_BACKOFF,
   createLoop,
+  ladderOf,
+  outcomeOf,
   shouldDecide,
   startRunner,
   type Loop,
@@ -19,10 +21,12 @@ import {
   type RosterEntry,
   type Superpipeline,
 } from "../src/sources/index.ts";
-import type { CandidateRecord } from "../src/placement/index.ts";
+import type { CandidateRecord, TierSettings } from "../src/placement/index.ts";
+import type { Fairness } from "../src/config.ts";
 import { tempStore } from "./helpers.ts";
 
 const BOARD = "brd_00000000000000b1";
+const QUIET = "brd_00000000000000b2";
 const CARD = "card_00000000000000c1";
 const T0 = Date.parse("2026-11-12T12:00:00.000Z");
 const S = 1000;
@@ -33,10 +37,13 @@ afterEach(() => {
 });
 
 /**
- * A board in SuperPipeline and its roster in AgentPod, in memory, that hold reservations the way
- * SuperPipeline's step 1 does: until a time, and only for an agent the eligibility read allows.
+ * Boards in SuperPipeline (`BOARD`, and `QUIET` beside it) and their roster in AgentPod (the same
+ * agents on both), in memory, that hold reservations the way SuperPipeline's step 1 does: until a
+ * time, and only for an agent the eligibility read allows.
  */
-function world() {
+function world(
+  options: { tiers?: Partial<TierSettings>; fairness?: Fairness } = {},
+) {
   const t = tempStore();
   cleanups.push(t.cleanup);
   let now = T0;
@@ -49,9 +56,19 @@ function world() {
     { key: "approve", ownerKind: "human", hasRequires: false },
     { key: "pinned", ownerKind: "agent", hasRequires: false },
   ];
-  const cards = new Map<string, CardView>();
-  const addCard = (id: string, over: Partial<CardView> = {}) =>
-    cards.set(id, {
+  const boards = new Map<string, Map<string, CardView>>([
+    [BOARD, new Map()],
+    [QUIET, new Map()],
+  ]);
+  const cards = boards.get(BOARD)!;
+  const boardOf = (cardId: string) =>
+    [...boards.values()].find((b) => b.has(cardId))!;
+  const addCard = (
+    id: string,
+    over: Partial<CardView> = {},
+    boardId: string = BOARD,
+  ) =>
+    boards.get(boardId)!.set(id, {
       id,
       stageKey: "build",
       state: "submitted",
@@ -97,17 +114,18 @@ function world() {
   const superpipeline: Superpipeline = {
     async board(boardId) {
       calls.push(`board ${boardId}`);
-      if (boardId !== BOARD)
+      const board = boards.get(boardId);
+      if (board === undefined)
         throw new SourceError("superpipeline", 404, "not found");
       return {
         boardId,
         stages,
-        cards: [...cards.values()].map((c) => ({ ...c })),
+        cards: [...board.values()].map((c) => ({ ...c })),
       };
     },
     async eligibility(boardId, cardId): Promise<EligibilityView> {
       calls.push(`eligibility ${cardId}`);
-      const card = cards.get(cardId)!;
+      const card = boards.get(boardId)!.get(cardId)!;
       const hold = holds.get(cardId);
       return {
         stageKey: card.stageKey,
@@ -154,15 +172,22 @@ function world() {
     store: t.store,
     superpipeline,
     agentpod,
-    reservationSeconds: 60,
+    tiers: {
+      winnerSeconds: 60,
+      runnerUpSeconds: 30,
+      topK: 3,
+      ...options.tiers,
+    },
+    fairness: options.fairness ?? "round-robin",
     now: () => now,
     newId: () => `pld_${String(++ids).padStart(24, "0")}`,
     log: (line) => log.push(line),
   });
   /** An agent claims a card, as SuperPipeline's claim would record it. */
   const claim = (cardId: string, agentId: string) => {
-    const c = cards.get(cardId)!;
-    cards.set(cardId, {
+    const board = boardOf(cardId);
+    const c = board.get(cardId)!;
+    board.set(cardId, {
       ...c,
       state: "working",
       currentRunId: `run_${c.attemptCount + 1}`,
@@ -171,6 +196,12 @@ function world() {
       reservation: null,
     });
     holds.delete(cardId);
+  };
+  /** The claimed card comes back to the lane, waiting again: a returned or reclaimed attempt. */
+  const giveBack = (cardId: string) => {
+    const board = boardOf(cardId);
+    const c = board.get(cardId)!;
+    board.set(cardId, { ...c, state: "submitted", currentRunId: null });
   };
   return {
     store: t.store,
@@ -183,6 +214,7 @@ function world() {
     addCard,
     addAgent,
     claim,
+    giveBack,
     advance: (ms: number) => {
       now += ms;
     },
@@ -230,6 +262,7 @@ describe("one pass: placing a ready card", () => {
       settled: 0,
       decided: 1,
       reserved: 1,
+      deferred: 0,
     });
     expect(w.calls).toEqual([
       `board ${BOARD}`,
@@ -242,10 +275,12 @@ describe("one pass: placing a ready card", () => {
       boardId: BOARD,
       cardId: CARD,
       stageKey: "build",
-      policy: "idle-load-success-lru@1",
+      policy: "idle-success-lru@2",
       chosenAgent: "agt_b",
       noDecisionReason: null,
       attemptsBefore: 0,
+      tier: "winner",
+      tierStep: 1,
       reservedUntil: new Date(T0 + 60 * S).toISOString(),
       outcome: null,
     });
@@ -268,7 +303,7 @@ describe("one pass: placing a ready card", () => {
     expect(verdicts(d?.candidates).agt_a).toBe("not-idle");
   });
 
-  test("two ready cards and two idle agents: one card each, by load", async () => {
+  test("two ready cards and two idle agents: one card each, one live hold per agent", async () => {
     const w = world();
     w.addCard("card_00000000000000c1", { priority: 1 });
     w.addCard("card_00000000000000c2");
@@ -324,13 +359,22 @@ describe("one pass: placing a ready card", () => {
     expect(w.store.listDecisions({ limit: 10 })).toEqual([]);
   });
 
-  test(`at most ${MAX_CARDS_PER_PASS} cards a pass`, async () => {
+  test(`at most ${MAX_CARDS_PER_PASS} cards a pass are looked at; those only waiting on held agents are not recorded`, async () => {
     const w = world();
     w.addAgent("agt_a");
     w.addAgent("agt_b");
     for (let i = 0; i < MAX_CARDS_PER_PASS + 3; i++)
       w.addCard(`card_${i.toString(16).padStart(16, "0")}`);
-    expect((await w.loop.passBoard(BOARD)).decided).toBe(MAX_CARDS_PER_PASS);
+    const pass = await w.loop.passBoard(BOARD);
+    expect(w.calls.filter((c) => c.startsWith("eligibility"))).toHaveLength(
+      MAX_CARDS_PER_PASS,
+    );
+    expect(pass).toMatchObject({
+      decided: 2,
+      reserved: 2,
+      deferred: MAX_CARDS_PER_PASS - 2,
+    });
+    expect(w.store.listDecisions({ limit: 100 })).toHaveLength(2);
   });
 });
 
@@ -383,36 +427,57 @@ describe("the next pass: what became of the card", () => {
     const pass = await w.loop.passBoard(BOARD);
     expect(pass).toMatchObject({ settled: 1, decided: 1 });
     expect(w.store.getDecision(id)?.outcome).toBe("expired");
-    // Its success rate on the board fell below the other's, so the other is chosen this time.
-    expect(w.store.listDecisions({ limit: 1 })[0]?.chosenAgent).toBe("agt_b");
+    // The winner is passed over: the runner-up is held for, for the runner-up window.
+    expect(w.store.listDecisions({ limit: 1 })[0]).toMatchObject({
+      chosenAgent: "agt_b",
+      tier: "runner-up",
+      tierStep: 2,
+    });
+    expect(w.calls.at(-1)).toBe(`reserve ${CARD} agt_b 30`);
   });
 
-  test("an agent whose holds lapse twice is shut out as a no-show, and comes back once they age out", async () => {
+  test("an agent whose holds lapse twice, on any cards, is shut out as a no-show, and comes back once they age out", async () => {
     const w = world();
     w.addCard(CARD);
     w.addAgent("agt_a");
     w.addAgent("agt_b", { roster: { busy: true } });
-    // agt_a is the only idle agent: held for it, lapsed, held for it again, lapsed again.
+    // agt_a is the only idle agent: held for it as the winner, lapsed. With nobody else free, the
+    // runner-up step opens the card to any match.
     await w.loop.passBoard(BOARD);
     w.advance(61 * S);
     await w.loop.passBoard(BOARD);
+    // A second card: agt_a wins again (one lapse is not enough), and lapses again.
+    w.addCard("card_00000000000000c2");
+    w.advance(S);
+    await w.loop.passBoard(BOARD);
     w.advance(61 * S);
+    await w.loop.passBoard(BOARD);
+    // A third card: agt_a is shut out.
+    w.addCard("card_00000000000000c3");
     await w.loop.passBoard(BOARD);
     const all = w.store.listDecisions({ limit: 10 }).reverse();
-    expect(all.map((d) => [d.chosenAgent, d.outcome])).toEqual([
-      ["agt_a", "expired"],
-      ["agt_a", "expired"],
-      [null, null],
+    expect(
+      all.map((d) => [d.cardId.slice(-2), d.chosenAgent, d.tier, d.outcome]),
+    ).toEqual([
+      ["c1", "agt_a", "winner", "expired"],
+      ["c1", null, "any-match", null],
+      ["c2", "agt_a", "winner", "expired"],
+      ["c2", null, "any-match", null],
+      ["c3", null, "winner", null],
     ]);
-    expect(all[2]?.noDecisionReason).toBe("none-eligible");
-    expect(verdicts(all[2]?.candidates)).toEqual({
+    expect(all[4]?.noDecisionReason).toBe("none-eligible");
+    expect(verdicts(all[4]?.candidates)).toEqual({
       agt_a: "recently-no-show",
       agt_b: "not-idle",
     });
+    // On the open cards it is passed over and a no-show, but pull still lets it claim them.
+    expect(verdicts(all[3]?.candidates).agt_a).toBe(
+      "recently-no-show,passed-over",
+    );
     // Half an hour after the first lapse it has aged out of the window, and agt_a is a candidate again.
     w.advance(30 * 60 * S);
     await w.loop.passBoard(BOARD);
-    const latest = w.store.latestDecision(BOARD, CARD)!;
+    const latest = w.store.latestDecision(BOARD, "card_00000000000000c3")!;
     expect(verdicts(latest.candidates).agt_a).toBe("ok");
     expect(latest.chosenAgent).toBe("agt_a");
   });
@@ -429,6 +494,263 @@ describe("the next pass: what became of the card", () => {
     gone.w.cards.delete(CARD);
     await gone.w.loop.passBoard(BOARD);
     expect(gone.w.store.getDecision(gone.id)?.outcome).toBe("superseded");
+  });
+});
+
+describe("tiers: a ladder of holds per card", () => {
+  /** Three idle agents; agt_a, agt_b, agt_c rank in that order (by id, all else equal). */
+  function three(options: Parameters<typeof world>[0] = {}) {
+    const w = world(options);
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_b");
+    w.addAgent("agt_c");
+    return w;
+  }
+  const steps = (w: ReturnType<typeof world>) =>
+    w.store
+      .listDecisions({ cardId: CARD, limit: 20 })
+      .reverse()
+      .map((d) => [d.tier, d.tierStep, d.chosenAgent, d.outcome]);
+  const reserves = (w: ReturnType<typeof world>) =>
+    w.calls.filter((c) => c.startsWith("reserve"));
+
+  test("winner for 60 s, then each runner-up for 30 s, then open to any match: every step labelled", async () => {
+    const w = three();
+    await w.loop.passBoard(BOARD);
+    w.advance(60 * S);
+    await w.loop.passBoard(BOARD);
+    w.advance(30 * S);
+    await w.loop.passBoard(BOARD);
+    w.advance(30 * S);
+    await w.loop.passBoard(BOARD);
+    expect(reserves(w)).toEqual([
+      `reserve ${CARD} agt_a 60`,
+      `reserve ${CARD} agt_b 30`,
+      `reserve ${CARD} agt_c 30`,
+    ]);
+    expect(steps(w)).toEqual([
+      ["winner", 1, "agt_a", "expired"],
+      ["runner-up", 2, "agt_b", "expired"],
+      ["runner-up", 3, "agt_c", "expired"],
+      ["any-match", 4, null, null],
+    ]);
+    const open = w.store.latestDecision(BOARD, CARD)!;
+    expect(open.noDecisionReason).toBe("any-match");
+    expect(verdicts(open.candidates)).toEqual({
+      agt_a: "passed-over",
+      agt_b: "passed-over",
+      agt_c: "passed-over",
+    });
+    // Open to any match: nothing more is held, however long it waits.
+    w.advance(REDECIDE_AFTER_MS * 3);
+    await w.loop.passBoard(BOARD);
+    expect(reserves(w)).toHaveLength(3);
+    expect(steps(w)).toHaveLength(4);
+    // Pull decides; the open decision is settled with whoever claimed.
+    w.claim(CARD, "agt_b");
+    await w.loop.passBoard(BOARD);
+    expect(w.store.getDecision(open.id)).toMatchObject({
+      outcome: "claimed-by-other",
+      outcomeBy: "agt_b",
+    });
+  });
+
+  test("a claim in the winner's hold settles the winner tier as claimed", async () => {
+    const w = three();
+    await w.loop.passBoard(BOARD);
+    w.claim(CARD, "agt_a");
+    await w.loop.passBoard(BOARD);
+    expect(steps(w)).toEqual([["winner", 1, "agt_a", "claimed"]]);
+  });
+
+  test("a claim in a runner-up's hold settles that step as claimed, and counts for it on the board", async () => {
+    const w = three();
+    await w.loop.passBoard(BOARD);
+    w.advance(60 * S);
+    await w.loop.passBoard(BOARD);
+    w.claim(CARD, "agt_b");
+    w.advance(5 * S);
+    await w.loop.passBoard(BOARD);
+    expect(steps(w)).toEqual([
+      ["winner", 1, "agt_a", "expired"],
+      ["runner-up", 2, "agt_b", "claimed"],
+    ]);
+    expect(w.store.boardHistory(BOARD).get("agt_b")).toEqual({
+      settled: 1,
+      claimed: 1,
+    });
+  });
+
+  test("the winner claiming late, after its hold lapsed but before the next pass, is a claim, not a no-show", async () => {
+    const w = three();
+    await w.loop.passBoard(BOARD);
+    w.advance(70 * S);
+    w.claim(CARD, "agt_a");
+    await w.loop.passBoard(BOARD);
+    expect(steps(w)).toEqual([["winner", 1, "agt_a", "claimed"]]);
+    expect(w.store.noShowsSince(new Date(T0).toISOString()).size).toBe(0);
+  });
+
+  test("a card back after a claim starts a new ladder: the winner tier, and nobody passed over", async () => {
+    const w = three();
+    await w.loop.passBoard(BOARD);
+    w.advance(60 * S);
+    await w.loop.passBoard(BOARD);
+    w.claim(CARD, "agt_b");
+    await w.loop.passBoard(BOARD);
+    w.giveBack(CARD);
+    w.advance(S);
+    await w.loop.passBoard(BOARD);
+    const latest = w.store.latestDecision(BOARD, CARD)!;
+    expect(latest).toMatchObject({
+      tier: "winner",
+      tierStep: 1,
+      attemptsBefore: 1,
+    });
+    // agt_a's lapse counts against its success rate, not as a pass-over on the new ladder; agt_b's
+    // claim counts for it.
+    expect(verdicts(latest.candidates)).toEqual({
+      agt_a: "ok",
+      agt_b: "ok",
+      agt_c: "ok",
+    });
+    expect(latest.chosenAgent).toBe("agt_b");
+  });
+
+  test("a card a person moved away and back mid-ladder starts again at the winner", async () => {
+    const w = three();
+    await w.loop.passBoard(BOARD);
+    w.advance(60 * S);
+    await w.loop.passBoard(BOARD);
+    const card = w.cards.get(CARD)!;
+    w.cards.set(CARD, { ...card, stageKey: "approve" });
+    await w.loop.passBoard(BOARD);
+    w.cards.set(CARD, { ...card, stageKey: "build" });
+    w.advance(S);
+    await w.loop.passBoard(BOARD);
+    expect(steps(w)).toEqual([
+      ["winner", 1, "agt_a", "expired"],
+      ["runner-up", 2, "agt_b", "superseded"],
+      // A new ladder: agt_b, whose step was cut short by the move, is not passed over; agt_a's
+      // lapse still counts against it.
+      ["winner", 1, "agt_b", null],
+    ]);
+  });
+
+  test("the settings: k = 1 opens the card after the winner; the runner-up window is the setting's", async () => {
+    const one = three({ tiers: { topK: 1 } });
+    await one.loop.passBoard(BOARD);
+    one.advance(60 * S);
+    await one.loop.passBoard(BOARD);
+    expect(steps(one)).toEqual([
+      ["winner", 1, "agt_a", "expired"],
+      ["any-match", 2, null, null],
+    ]);
+    const slow = three({ tiers: { winnerSeconds: 90, runnerUpSeconds: 45 } });
+    await slow.loop.passBoard(BOARD);
+    slow.advance(90 * S);
+    await slow.loop.passBoard(BOARD);
+    expect(reserves(slow)).toEqual([
+      `reserve ${CARD} agt_a 90`,
+      `reserve ${CARD} agt_b 45`,
+    ]);
+  });
+
+  test("a runner-up step whose candidates all hold other cards waits, unrecorded, and is held once one is free", async () => {
+    const w = world();
+    w.addCard(CARD, { priority: 1 });
+    w.addCard("card_00000000000000c2");
+    w.addAgent("agt_a");
+    w.addAgent("agt_b");
+    // c1 → agt_a, c2 → agt_b.
+    await w.loop.passBoard(BOARD);
+    w.advance(60 * S);
+    // Both lapse. c1's runner-up is agt_b, c2's is agt_a: each is free again.
+    await w.loop.passBoard(BOARD);
+    expect(
+      w.store
+        .listDecisions({ limit: 10 })
+        .reverse()
+        .map((d) => [d.cardId.slice(-2), d.tier, d.chosenAgent]),
+    ).toEqual([
+      ["c1", "winner", "agt_a"],
+      ["c2", "winner", "agt_b"],
+      ["c1", "runner-up", "agt_b"],
+      ["c2", "runner-up", "agt_a"],
+    ]);
+    // A third card while both hold one: it waits, and nothing is recorded for it.
+    w.addCard("card_00000000000000c3");
+    const pass = await w.loop.passBoard(BOARD);
+    expect(pass).toMatchObject({ decided: 0, deferred: 1 });
+    expect(w.store.latestDecision(BOARD, "card_00000000000000c3")).toBeNull();
+    // agt_a claims c2, so it holds nothing (and its station has not reported the work yet): c3 is
+    // held for it on the next pass, while agt_b still holds c1.
+    w.claim("card_00000000000000c2", "agt_a");
+    w.advance(5 * S);
+    await w.loop.passBoard(BOARD);
+    expect(
+      w.store.latestDecision(BOARD, "card_00000000000000c3"),
+    ).toMatchObject({ tier: "winner", tierStep: 1, chosenAgent: "agt_a" });
+  });
+});
+
+describe("fairness across boards", () => {
+  /** A busy board with three cards ready before the quiet board's one, and two free agents. */
+  function contested(fairness: Fairness = "round-robin") {
+    const w = world({ fairness });
+    w.store.enableBoard(BOARD, new Date(T0).toISOString());
+    w.store.enableBoard(QUIET, new Date(T0).toISOString());
+    for (const n of [1, 2, 3])
+      w.addCard(`card_00000000000000b${n}`, {
+        createdAt: new Date(T0 - 60 * S + n).toISOString(),
+      });
+    w.addCard(
+      "card_00000000000000q1",
+      { createdAt: new Date(T0 - 10 * S).toISOString() },
+      QUIET,
+    );
+    w.addAgent("agt_a");
+    w.addAgent("agt_b");
+    return w;
+  }
+  const holdsByBoard = (w: ReturnType<typeof world>) =>
+    w.store
+      .listDecisions({ limit: 20 })
+      .reverse()
+      .filter((d) => d.reservedUntil !== null)
+      .map((d) => `${d.boardId === QUIET ? "quiet" : "busy"} ${d.chosenAgent}`);
+
+  test("a sweep takes one card from each board a round: the busy board and the quiet board both get a hold", async () => {
+    const w = contested();
+    expect(await w.loop.passAll()).toEqual({ boards: 2, failedBoards: 0 });
+    expect(holdsByBoard(w)).toEqual(["busy agt_a", "quiet agt_b"]);
+  });
+
+  test("without fairness (board order) the busy board takes every free agent, and the quiet board gets none", async () => {
+    const w = contested("board-order");
+    await w.loop.passAll();
+    expect(holdsByBoard(w)).toEqual(["busy agt_a", "busy agt_b"]);
+  });
+
+  test("the quiet board's card is held on the next sweep too, while the busy board's rest wait", async () => {
+    const w = contested();
+    await w.loop.passAll();
+    w.advance(10 * S);
+    await w.loop.passAll();
+    expect(holdsByBoard(w)).toEqual(["busy agt_a", "quiet agt_b"]);
+    expect(
+      w.store.listDecisions({ limit: 20 }).filter((d) => d.boardId === BOARD),
+    ).toHaveLength(1);
+  });
+
+  test("a nudge passes its own board only", async () => {
+    const w = contested();
+    await w.loop.passBoard(QUIET);
+    expect(holdsByBoard(w)).toEqual(["quiet agt_a"]);
+    expect(w.calls.filter((c) => c.startsWith("board"))).toEqual([
+      `board ${QUIET}`,
+    ]);
   });
 });
 
@@ -491,7 +813,9 @@ describe("nothing requires it", () => {
     w.advance(61 * S);
     await w.loop.passBoard(BOARD);
     for (const call of w.calls)
-      expect(call).toMatch(/^(board|roster|eligibility) |^reserve \S+ \S+ 60$/);
+      expect(call).toMatch(
+        /^(board|roster|eligibility) |^reserve \S+ \S+ (60|30)$/,
+      );
   });
 });
 
@@ -514,8 +838,8 @@ describe("deciding again", () => {
       outcomeBy: null,
       outcomeAt: null,
       ...over,
-    }) as Parameters<typeof shouldDecide>[0];
-  const card = { stageKey: "build" } as CardView;
+    }) as NonNullable<Parameters<typeof shouldDecide>[0]>;
+  const card = { stageKey: "build", attemptCount: 0 } as CardView;
   const late = T0 + REDECIDE_AFTER_MS + 60 * S;
 
   test("a held, unsettled decision is never made again, however old", () => {
@@ -539,6 +863,55 @@ describe("deciding again", () => {
       ),
     ).toBe(true);
     expect(shouldDecide(null, card, T0)).toBe(true);
+  });
+
+  test("a card open to any match is never decided again on that ladder; a card back after a claim is, at once", () => {
+    const open = row({
+      chosenAgent: null,
+      noDecisionReason: "any-match",
+      tier: "any-match",
+    });
+    expect(shouldDecide(open, card, late)).toBe(false);
+    expect(
+      shouldDecide(open, { ...card, attemptCount: 1 } as CardView, T0),
+    ).toBe(true);
+    const nobody = row({
+      chosenAgent: null,
+      noDecisionReason: "none-eligible",
+    });
+    expect(
+      shouldDecide(nobody, { ...card, attemptCount: 1 } as CardView, T0),
+    ).toBe(true);
+  });
+
+  test("an open card claimed by somebody this service cannot name is claimed-by-other, never claimed", () => {
+    const open = row({ chosenAgent: null, tier: "any-match" });
+    const claimed = {
+      ...card,
+      state: "working",
+      archived: false,
+      attemptCount: 1,
+      lastAgentId: null,
+    } as CardView;
+    expect(outcomeOf(open, claimed, new Date(T0).toISOString())).toEqual({
+      outcome: "claimed-by-other",
+      by: null,
+    });
+  });
+
+  test("a ladder: the agents whose holds lapsed, oldest first, back to a person's move", () => {
+    const r = (chosenAgent: string | null, outcome: string | null) =>
+      row({ chosenAgent, outcome });
+    expect(
+      ladderOf([
+        r("agt_c", "expired"),
+        r(null, null),
+        r("agt_b", "expired"),
+        r("agt_x", "superseded"),
+        r("agt_a", "expired"),
+      ]),
+    ).toEqual({ passedOver: ["agt_b", "agt_c"] });
+    expect(ladderOf([])).toEqual({ passedOver: [] });
   });
 
   test("no choice, or a refused hold, waits five minutes", () => {
@@ -612,6 +985,7 @@ describe("the runner", () => {
         settled: 0,
         decided: 0,
         reserved: 0,
+        deferred: 0,
       }),
     };
     const s = scheduler();
@@ -649,7 +1023,7 @@ describe("the runner", () => {
         }),
       passBoard: async (boardId) => {
         order.push(`board ${boardId}`);
-        return { boardId, settled: 0, decided: 0, reserved: 0 };
+        return { boardId, settled: 0, decided: 0, reserved: 0, deferred: 0 };
       },
     };
     const s = scheduler();

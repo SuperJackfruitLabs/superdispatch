@@ -40,7 +40,12 @@ const loop = createLoop({
   store,
   superpipeline,
   agentpod,
-  reservationSeconds: config.reservationSeconds,
+  tiers: {
+    winnerSeconds: config.reservationSeconds,
+    runnerUpSeconds: config.runnerUpSeconds,
+    topK: config.topK,
+  },
+  fairness: config.fairness,
   now: Date.now,
   newId: () => `pld_${randomBytes(12).toString("hex")}`,
 });

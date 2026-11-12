@@ -163,6 +163,7 @@ export function decisionView(d: DecisionRow) {
     policy: d.policy,
     chosen: d.chosenAgent,
     reason: d.noDecisionReason,
+    tier: d.tier !== null ? { name: d.tier, step: d.tierStep } : null,
     candidates: d.candidates,
     reservation:
       d.reservedUntil !== null ? { reservedUntil: d.reservedUntil } : null,

@@ -114,6 +114,8 @@ describe("the operator API", () => {
       noDecisionReason: null,
       candidates: [],
       attemptsBefore: 0,
+      tier: "winner",
+      tierStep: 1,
     };
     store.recordDecision({
       ...base,
@@ -154,6 +156,7 @@ describe("the operator API", () => {
         policy: "idle-load-success-lru@1",
         chosen: "agt_a",
         reason: null,
+        tier: { name: "winner", step: 1 },
         candidates: [],
         reservation: { reservedUntil: "2026-11-12T11:01:00.000Z" },
         reservationRefused: null,
