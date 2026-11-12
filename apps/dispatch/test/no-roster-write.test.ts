@@ -88,7 +88,7 @@ describe("no client can edit a roster", () => {
     for (const w of writes) expect(w).toMatch(/\/reservation$/);
   });
 
-  test("Accounts' client asks for this service's token, and nothing else", async () => {
+  test("Accounts' client asks for this service's token and the policy's answer, and nothing else", async () => {
     const { methods, requests } = await everyRequest((fetch) =>
       createAccounts({
         url: "https://accounts.example",
@@ -96,8 +96,11 @@ describe("no client can edit a roster", () => {
         fetch,
       }),
     );
-    expect(methods).toEqual(["serviceToken"]);
-    expect(requests).toEqual(["POST /api/token/service"]);
+    expect(methods).toEqual(["decide", "serviceToken"]);
+    expect(requests).toEqual([
+      "POST /api/policy/decide",
+      "POST /api/token/service",
+    ]);
   });
 
   test("no request any client makes writes to a roster path", async () => {

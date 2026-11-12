@@ -106,6 +106,102 @@ describe("accounts", () => {
     expect(String(e3.cause ?? "")).not.toContain(CREDENTIAL.secret);
   });
 
+  test("asks the dispatch policy with the credential, and reads its answer", async () => {
+    const f = fakeFetch({
+      "POST /api/policy/decide": {
+        json: {
+          allow: true,
+          reasons: ["allowed"],
+          policyVersion: 3,
+          limits: [{ id: "daily", maxRuns: 5, windowHours: 24 }],
+          decisionId: "pdc_00000000000000000001",
+        },
+      },
+    });
+    const accounts = createAccounts({
+      url: "https://accounts.example/",
+      credential: CREDENTIAL,
+      fetch: f.fetch,
+    });
+    expect(
+      await accounts.decide({
+        subject: "prn_aaaaaaaaaaaaaaaaaaaa",
+        board: BOARD,
+        stage: "build",
+        labels: [],
+        capabilities: ["code"],
+        card: CARD,
+      }),
+    ).toEqual({
+      allow: true,
+      reasons: ["allowed"],
+      policyVersion: 3,
+      limits: [{ id: "daily", maxRuns: 5, windowHours: 24 }],
+    });
+    expect(f.seen).toEqual([
+      {
+        method: "POST",
+        url: "https://accounts.example/api/policy/decide",
+        authorization: "Bearer svc_0123456789abcdef0123:cred-secret",
+        body: {
+          subject: "prn_aaaaaaaaaaaaaaaaaaaa",
+          action: "take",
+          resource: {
+            board: BOARD,
+            stage: "build",
+            labels: [],
+            capabilities: ["code"],
+            card: CARD,
+          },
+        },
+      },
+    ]);
+  });
+
+  test("a policy answer that cannot be read is an error, never an allow; a refusal carries its code", async () => {
+    const ask = {
+      subject: "prn_aaaaaaaaaaaaaaaaaaaa",
+      board: BOARD,
+      stage: "build",
+      labels: [],
+      capabilities: [],
+      card: CARD,
+    };
+    const answering = (json: unknown) =>
+      createAccounts({
+        url: "https://accounts.example",
+        credential: CREDENTIAL,
+        fetch: fakeFetch({ "POST /api/policy/decide": { json } }).fetch,
+      });
+    const ok = { allow: false, reasons: [], policyVersion: null, limits: [] };
+    for (const bad of [
+      { ...ok, allow: "yes" },
+      { ...ok, reasons: [1] },
+      { ...ok, policyVersion: 0 },
+      { ...ok, policyVersion: "3" },
+      { ...ok, limits: [{ id: "x", maxRuns: 0, windowHours: 1 }] },
+      { ...ok, limits: null },
+      null,
+    ]) {
+      expect((await thrown(answering(bad).decide(ask))).code).toBe(
+        "malformed_response",
+      );
+    }
+    const refused = createAccounts({
+      url: "https://accounts.example",
+      credential: CREDENTIAL,
+      fetch: fakeFetch({
+        "POST /api/policy/decide": {
+          status: 403,
+          json: { error: "insufficient_scope", scope: "policy:decide" },
+        },
+      }).fetch,
+    });
+    const e = await thrown(refused.decide(ask));
+    expect([e.status, e.code]).toEqual([403, "insufficient_scope"]);
+    expect(e.message).not.toContain(CREDENTIAL.secret);
+  });
+
   test("a token is held until a minute before it expires, shared by callers at once, and dropped on invalidate", async () => {
     let now = 0;
     let asked = 0;
