@@ -1,0 +1,30 @@
+# SuperDispatch on the staging plane, on the shared `suite-staging` network as `superdispatch`:
+# the address the event relay delivers to. Settings come from
+# /opt/suite-staging/env/superdispatch/superdispatch.env, minted on the box. The store lives in
+# the named volume `dispatch-data`, mounted at /data (the image's default SUPERDISPATCH_DATA_DIR).
+name: staging-superdispatch
+
+services:
+  dispatch:
+    build:
+      context: ../..
+      dockerfile: apps/dispatch/Dockerfile
+    image: staging-superdispatch:${SUPERDISPATCH_SHA:-dev}
+    env_file: /opt/suite-staging/env/superdispatch/superdispatch.env
+    environment:
+      PORT: "8796"
+    ports:
+      - "127.0.0.1:8796:8796"
+    volumes:
+      - dispatch-data:/data
+    networks:
+      suite-staging:
+        aliases: [superdispatch]
+    restart: unless-stopped
+
+volumes:
+  dispatch-data:
+
+networks:
+  suite-staging:
+    external: true
