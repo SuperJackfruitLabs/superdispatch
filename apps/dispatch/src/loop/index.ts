@@ -89,6 +89,7 @@ import {
   boardOrder,
   candidateRecords,
   fairOrder,
+  inCandidateSet,
   place,
   suggest,
   type Capability,
@@ -100,6 +101,11 @@ import {
   type StageRun,
   type TierSettings,
 } from "../placement/index.ts";
+import {
+  createPolicyGate,
+  type PolicyGate,
+  type PolicyPass,
+} from "./policy.ts";
 
 /** How much of a stage's history is read when the loop is given none: 30 days. */
 export const DEFAULT_HISTORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -219,6 +225,11 @@ export interface LoopDeps {
   stationFilters?: StationFilterMode;
   /** The weakest registry proof that satisfies a need; `declared` when unset. */
   minProof?: Proof;
+  /**
+   * Accounts' dispatch policy, asked for each candidate (`./policy.ts`); off when unset: nothing
+   * is asked and the policy filter passes everyone.
+   */
+  policy?: PolicyGate;
   /** When the roster suggestions are computed; `DEFAULT_SUGGESTIONS` when unset. */
   suggestions?: SuggestionSettings;
   /** A new suggestion id; `sug_` and random hex when unset. */
@@ -416,6 +427,8 @@ export function createLoop(deps: LoopDeps): Loop {
   }
 
   const candidateSet = deps.candidateSet ?? DEFAULT_CANDIDATE_SET;
+  const policyGate =
+    deps.policy ?? createPolicyGate({ accounts: null, store, log });
 
   /**
    * Every agent's load from SuperPipeline, by agent, when the candidate set is `all`; empty
@@ -562,6 +575,7 @@ export function createLoop(deps: LoopDeps): Loop {
         ? fairOrder(queues, (card) => Date.parse(card.createdAt))
         : boardOrder(queues);
     const stages = new Map<string, Promise<Map<string, StageRun[]> | null>>();
+    const policy = policyGate.pass(nowMs);
     for (const { boardId, item: card } of order) {
       const g = byBoard.get(boardId) as Gathered;
       await placeCard(g, card, {
@@ -572,6 +586,7 @@ export function createLoop(deps: LoopDeps): Loop {
         stages,
         direct,
         stations,
+        policy,
       });
     }
     return gathered.map((g) => g.pass);
@@ -588,6 +603,7 @@ export function createLoop(deps: LoopDeps): Loop {
       stages: Map<string, Promise<Map<string, StageRun[]> | null>>;
       direct: Map<string, DirectLoadEntry>;
       stations: Map<string, StationCaps> | null;
+      policy: PolicyPass;
     },
   ): Promise<void> {
     const { boardId } = g.pass;
@@ -615,7 +631,7 @@ export function createLoop(deps: LoopDeps): Loop {
     );
     const needs = g.needs.get(card.stageKey) ?? null;
     const registryRead = needs !== null && at.stations !== null;
-    const candidates: CandidateFacts[] = eligibility.agents.map((a) => {
+    const gathered: CandidateFacts[] = eligibility.agents.map((a) => {
       const entry =
         a.principalId === null
           ? undefined
@@ -664,6 +680,31 @@ export function createLoop(deps: LoopDeps): Loop {
           : {}),
       };
     });
+
+    // The dispatch policy, for each candidate in the set that the card's grant does not already
+    // refuse: an agent SuperPipeline refuses on the grant is never sent to Accounts. SuperPipeline's
+    // cards carry no labels yet, so none are sent.
+    const requires = g.requires.get(card.stageKey);
+    const capabilities = requires ? [...requires.all, ...requires.any] : [];
+    const candidates = await Promise.all(
+      gathered.map(async (facts): Promise<CandidateFacts> => {
+        if (
+          inCandidateSet(facts, candidateSet) === null ||
+          facts.pipeline.reasons.includes("grant_denied")
+        )
+          return facts;
+        const verdict = await at.policy({
+          agentId: facts.agentId,
+          principalId: facts.principalId,
+          boardId,
+          stageKey: card.stageKey,
+          cardId: card.id,
+          labels: [],
+          capabilities,
+        });
+        return verdict === undefined ? facts : { ...facts, policy: verdict };
+      }),
+    );
 
     const ladder = ladderOf(
       store.ladderDecisions(boardId, card.id, card.stageKey, card.attemptCount),

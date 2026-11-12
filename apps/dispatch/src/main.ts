@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { loadConfig } from "./config.ts";
 import { createLoop, startRunner } from "./loop/index.ts";
+import { createPolicyGate } from "./loop/policy.ts";
 import { SERVICE, createHandler } from "./routes/index.ts";
 import {
   createAccounts,
@@ -66,6 +67,11 @@ const loop = createLoop({
   candidateSet: config.candidates,
   stationFilters: config.stationFilters,
   minProof: config.minProof,
+  policy: createPolicyGate({
+    accounts: config.policy === "on" ? accounts : null,
+    store,
+    log: console.log,
+  }),
   suggestions: {
     everyMs: config.suggestEverySeconds * 1000,
     windowMs: config.suggestWindowHours * 3600 * 1000,
