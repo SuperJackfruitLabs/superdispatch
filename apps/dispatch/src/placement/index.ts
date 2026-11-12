@@ -16,21 +16,34 @@
  *   reason it gives); the station ready to claim; **idle**, no work in hand on any board (the
  *   workspace-wide cap, and the reason a reservation is only ever made for an idle agent); and not
  *   **recently a no-show**: an agent whose last `NO_SHOW_LIMIT` reservations within
- *   `NO_SHOW_WINDOW_MS` lapsed unclaimed is shut out until the older of them ages out. An agent
- *   off the roster is recorded with its roster rejection only: it is outside the candidate set and
- *   keeps working by pull.
- * - **Score**, in order, each term breaking the previous one's ties: **load** (the cards this
- *   service already holds for the agent; fewer first), then the agent's **success rate on this
- *   board** (holds it claimed, of holds that were settled, smoothed: `(claimed + 1) / (settled +
- *   2)`), then **least recently used** (longest since its station last took work; never first).
- *   The agent id breaks a tie that is left, so the same inputs always give the same choice.
+ *   `NO_SHOW_WINDOW_MS` lapsed unclaimed is shut out until the older of them ages out; not
+ *   **holding another card** (one live hold per agent: an agent claims one card at a time, so a
+ *   second hold could only lapse and count against it as a no-show); and not **passed over** for
+ *   this card (its hold on this card already lapsed in the card's current ladder of tiers). An
+ *   agent off the roster is recorded with its roster rejection only: it is outside the candidate
+ *   set and keeps working by pull.
+ * - **Score**, in order, each term breaking the previous one's ties: the agent's **success rate on
+ *   this board** (holds it claimed, of holds that were settled, smoothed: `(claimed + 1) /
+ *   (settled + 2)`), then **least recently used** (longest since its station last took work;
+ *   never first). The agent id breaks a tie that is left, so the same inputs always give the same
+ *   choice.
+ * - **Tiers.** A card's holds form a ladder, one step per hold (SuperPipeline holds a card for one
+ *   agent at a time). Step 1 is the **winner** tier, held for `winnerSeconds`; steps 2 to `topK`
+ *   are the **runner-up** tier, each held for the best candidate not yet passed over, for
+ *   `runnerUpSeconds`; after that the card is open to **any match**: nothing is held and pull
+ *   decides. A runner-up step with nobody left to hold for opens the card at once. See `tierFor`.
  * - **Decide.** A card with fewer than `MIN_CANDIDATES` rostered candidates is not placed: with
  *   one agent there is no choice to make, and pull already gives it the card. Otherwise the best
- *   eligible candidate is chosen, or none when every one was rejected.
+ *   eligible candidate is chosen. When none is eligible only because the free ones are holding
+ *   other cards, the card waits for a later pass (`waiting-on-holds`) rather than give up its
+ *   tier; otherwise it is `none-eligible` in the winner tier and `any-match` after it.
+ * - **Fairness across boards** (`fairOrder`): one sweep places the ready cards of every opted-in
+ *   board in rounds, one card from each board a round, the longest-waiting first within a round,
+ *   so a busy board cannot take every free agent before a quiet board's card is looked at.
  */
 
 /** The name of the fixed policy below, recorded with every decision. */
-export const POLICY = "idle-load-success-lru@1";
+export const POLICY = "idle-success-lru@2";
 
 /** The fewest rostered candidates a card needs before it is placed. */
 export const MIN_CANDIDATES = 2;
@@ -67,8 +80,12 @@ export const FILTERS = {
   capacity: "at-capacity",
   /** The agent has no work in hand anywhere in the workspace: the workspace-wide cap. */
   idle: "not-idle",
+  /** The agent holds no other card now: one live hold per agent. */
+  held: "holding-another",
   /** The agent has not let its recent reservations lapse unclaimed. */
   noShow: "recently-no-show",
+  /** The agent's hold on this card has not already lapsed in the card's current ladder. */
+  passedOver: "passed-over",
 } as const;
 
 /** SuperPipeline's per-agent claim reasons that a filter here names, by that filter. */
@@ -149,7 +166,69 @@ export type NoDecisionReason =
   /** Every candidate failed a filter. */
   | "none-eligible"
   /** Fewer than `MIN_CANDIDATES` candidates are on the roster: there is no choice to make. */
-  | "one-candidate";
+  | "one-candidate"
+  /**
+   * Nobody is eligible, but an agent not yet passed over fails only because it holds another
+   * card: the card waits for a later pass, and the loop records nothing.
+   */
+  | "waiting-on-holds"
+  /** The tiers are spent, or a runner-up step has nobody left: nothing is held, pull decides. */
+  | "any-match";
+
+/** The tiers of a card's ladder of holds. */
+export const TIERS = ["winner", "runner-up", "any-match"] as const;
+export type TierName = (typeof TIERS)[number];
+
+/** How the ladder relaxes: how long each tier holds, and how many holds before any match. */
+export interface TierSettings {
+  /** Seconds the winner tier holds the card (step 1). */
+  readonly winnerSeconds: number;
+  /** Seconds each runner-up step holds the card (steps 2 to `topK`). */
+  readonly runnerUpSeconds: number;
+  /** The most holds a ladder makes, the winner's among them; then any match. At least 1. */
+  readonly topK: number;
+}
+
+export const DEFAULT_TIERS: TierSettings = {
+  winnerSeconds: 60,
+  runnerUpSeconds: 30,
+  topK: 3,
+};
+
+/** One step of a card's ladder: its tier, its number, and how long it holds (null: no hold). */
+export interface Tier {
+  readonly name: TierName;
+  readonly step: number;
+  readonly holdSeconds: number | null;
+}
+
+/**
+ * The tier of ladder step `step` (1 first): the winner, then runner-ups up to `topK` holds, then
+ * any match. A step below 1 is read as 1.
+ */
+export function tierFor(step: number, settings: TierSettings): Tier {
+  const n = Math.max(1, Math.floor(step));
+  if (n === 1 && settings.topK >= 1)
+    return { name: "winner", step: n, holdSeconds: settings.winnerSeconds };
+  if (n <= settings.topK)
+    return {
+      name: "runner-up",
+      step: n,
+      holdSeconds: settings.runnerUpSeconds,
+    };
+  return { name: "any-match", step: n, holdSeconds: null };
+}
+
+/**
+ * Where a card is on its ladder: the agents whose holds on it lapsed (passed over, oldest first)
+ * and so the step it is at. A new ladder starts when the card reaches a stage, or comes back
+ * after a claim.
+ */
+export interface Ladder {
+  readonly passedOver: readonly string[];
+}
+
+export const NEW_LADDER: Ladder = { passedOver: [] };
 
 /**
  * What placement concluded for one card: an agent chosen, or none and why. Either way it carries
@@ -160,12 +239,14 @@ export type Decision =
       readonly kind: "placed";
       readonly card: CardRef;
       readonly chosen: string;
+      readonly tier: Tier;
       readonly candidates: readonly CandidateRecord[];
     }
   | {
       readonly kind: "none";
       readonly card: CardRef;
       readonly reason: NoDecisionReason;
+      readonly tier: Tier;
       readonly candidates: readonly CandidateRecord[];
     };
 
@@ -207,12 +288,17 @@ export interface PlacementInput {
   readonly card: CardRef;
   readonly nowMs: number;
   readonly candidates: readonly CandidateFacts[];
+  /** The card's ladder so far; a new one when unset. */
+  readonly ladder?: Ladder;
+  /** How the ladder relaxes; `DEFAULT_TIERS` when unset. */
+  readonly tiers?: TierSettings;
 }
 
 /** Every filter's result for one candidate. An agent off the roster goes through that one only. */
 export function filter(
   facts: CandidateFacts,
   nowMs: number,
+  passedOver = false,
 ): readonly FilterResult[] {
   const roster = facts.roster;
   if (roster === null || !roster.enabled) return [rejected("roster")];
@@ -236,7 +322,9 @@ export function filter(
     check("health", roster.ready),
     check("capacity", !named.has("capacity")),
     check("idle", !roster.busy),
+    check("held", facts.holds === 0),
     check("noShow", !recentlyNoShow(facts.history.noShowsAtMs, nowMs)),
+    check("passedOver", !passedOver),
   ];
 }
 
@@ -255,11 +343,10 @@ export function recentlyNoShow(
 export function scoreTerms(
   facts: CandidateFacts,
   nowMs: number,
-): { load: number; successRate: number; sinceLastDispatchS: number } {
+): { successRate: number; sinceLastDispatchS: number } {
   const { settled, claimed } = facts.history;
   const last = facts.roster?.lastDispatchedAtMs ?? null;
   return {
-    load: facts.holds,
     successRate: (claimed + 1) / (settled + 2),
     sinceLastDispatchS:
       last === null
@@ -276,7 +363,6 @@ export function compareTerms(
   b: { agentId: string; terms: Terms },
 ): number {
   return (
-    a.terms.load - b.terms.load ||
     b.terms.successRate - a.terms.successRate ||
     b.terms.sinceLastDispatchS - a.terms.sinceLastDispatchS ||
     (a.agentId < b.agentId ? -1 : a.agentId > b.agentId ? 1 : 0)
@@ -284,7 +370,8 @@ export function compareTerms(
 }
 
 /**
- * Place one card: filter every candidate, score the eligible ones and choose. Each eligible
+ * Place one card at its ladder's step: filter every candidate, score the eligible ones and choose,
+ * or open the card to any match once the tiers are spent. Each eligible
  * candidate's `total` is how many eligible candidates it outranks plus one, so the best has the
  * highest total and the record reads as a ranking; its terms say why.
  */
@@ -295,18 +382,25 @@ export function place(input: PlacementInput): Decision {
     seen.add(c.agentId);
     return true;
   });
-  if (candidates.length === 0) {
-    return {
-      kind: "none",
-      card: input.card,
-      reason: "no-candidates",
-      candidates: [],
-    };
-  }
+  const ladder = input.ladder ?? NEW_LADDER;
+  const passedOver = new Set(ladder.passedOver);
+  const tier = tierFor(passedOver.size + 1, input.tiers ?? DEFAULT_TIERS);
+  const none = (
+    reason: NoDecisionReason,
+    records: readonly CandidateRecord[],
+    at: Tier = tier,
+  ): Decision => ({
+    kind: "none",
+    card: input.card,
+    reason,
+    tier: at,
+    candidates: records,
+  });
+  if (candidates.length === 0) return none("no-candidates", []);
 
   const filtered = candidates.map((facts) => ({
     facts,
-    filters: filter(facts, input.nowMs),
+    filters: filter(facts, input.nowMs, passedOver.has(facts.agentId)),
   }));
   const eligible = filtered
     .filter(({ filters }) => filters.every((r) => r.passed))
@@ -335,29 +429,85 @@ export function place(input: PlacementInput): Decision {
   const rostered = filtered.filter(({ filters }) =>
     filters.some((r) => r.filter === "roster" && r.passed),
   ).length;
-  if (rostered > 0 && rostered < MIN_CANDIDATES) {
-    return {
-      kind: "none",
-      card: input.card,
-      reason: "one-candidate",
-      candidates: records,
-    };
-  }
+  if (rostered > 0 && rostered < MIN_CANDIDATES)
+    return none("one-candidate", records);
+  if (tier.name === "any-match") return none("any-match", records);
   const best = eligible[0];
   if (best === undefined) {
-    return {
-      kind: "none",
-      card: input.card,
-      reason: "none-eligible",
-      candidates: records,
-    };
+    // Free agents exist but hold other cards for now: wait, keeping the tier, rather than give up.
+    if (filtered.some(({ filters }) => onlyHeld(filters)))
+      return none("waiting-on-holds", records);
+    if (tier.name === "runner-up")
+      return none("any-match", records, {
+        ...tier,
+        name: "any-match",
+        holdSeconds: null,
+      });
+    return none("none-eligible", records);
   }
   return {
     kind: "placed",
     card: input.card,
     chosen: best.agentId,
+    tier,
     candidates: records,
   };
+}
+
+/** Did a candidate fail the one-hold filter and nothing else? */
+function onlyHeld(filters: readonly FilterResult[]): boolean {
+  const failed = filters.filter((r) => !r.passed);
+  return failed.length === 1 && failed[0]?.filter === "held";
+}
+
+/** A card waiting in a board's queue, with when it has waited since. */
+export interface Queued<T> {
+  readonly boardId: string;
+  readonly item: T;
+}
+
+/**
+ * Fairness across boards: the order one sweep places every board's ready cards in. Each board's
+ * queue keeps its own order (best first); the sweep takes them in rounds, one card from each
+ * board that has one left, and within a round the card that has waited longest goes first (then
+ * the lower board id). A busy board and a quiet one so get a card each in the first round, and the
+ * busy board takes the free agents left after that.
+ */
+export function fairOrder<T>(
+  queues: readonly {
+    readonly boardId: string;
+    readonly items: readonly T[];
+  }[],
+  waitingSinceMs: (item: T) => number,
+): Queued<T>[] {
+  const out: Queued<T>[] = [];
+  const longest = Math.max(0, ...queues.map((q) => q.items.length));
+  for (let round = 0; round < longest; round++) {
+    const heads: Queued<T>[] = [];
+    for (const q of queues) {
+      const item = q.items[round];
+      if (item !== undefined) heads.push({ boardId: q.boardId, item });
+    }
+    heads.sort(
+      (a, b) =>
+        waitingSinceMs(a.item) - waitingSinceMs(b.item) ||
+        (a.boardId < b.boardId ? -1 : a.boardId > b.boardId ? 1 : 0),
+    );
+    out.push(...heads);
+  }
+  return out;
+}
+
+/** Each board's queue in turn, every card of one board before the next: no fairness. */
+export function boardOrder<T>(
+  queues: readonly {
+    readonly boardId: string;
+    readonly items: readonly T[];
+  }[],
+): Queued<T>[] {
+  return queues.flatMap((q) =>
+    q.items.map((item) => ({ boardId: q.boardId, item })),
+  );
 }
 
 /** Did a recorded candidate pass every filter it went through? */
@@ -404,6 +554,18 @@ export function decisionProblems(decision: Decision): string[] {
     if (record.score !== null && !scoreIsFinite(record.score))
       problems.push(`${id} has a score that is not a finite number`);
   }
+
+  const tier = decision.tier;
+  if (decision.kind === "placed" && tier.name === "any-match")
+    problems.push("placed in the any-match tier, which holds nothing");
+  if (decision.kind === "placed" && tier.holdSeconds === null)
+    problems.push("placed with no hold");
+  if (
+    decision.kind === "none" &&
+    decision.reason === "any-match" &&
+    tier.name !== "any-match"
+  )
+    problems.push(`any-match, in the ${tier.name} tier`);
 
   if (decision.kind === "placed") {
     const chosen = decision.candidates.find(

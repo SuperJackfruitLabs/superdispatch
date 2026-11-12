@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_TIERS,
   FILTERS,
   MIN_CANDIDATES,
   NEVER_DISPATCHED_SECONDS,
@@ -17,10 +18,15 @@ import {
   type CardRef,
   type Decision,
   type FilterName,
+  type TierSettings,
+  boardOrder,
+  fairOrder,
+  tierFor,
 } from "../src/placement/index.ts";
 
 const CARD: CardRef = { boardId: "brd_a", cardId: "crd_a", stageKey: "build" };
 const ALL = Object.keys(FILTERS) as FilterName[];
+const WINNER = tierFor(1, DEFAULT_TIERS);
 
 function eligible(agentId: string, total = 1): CandidateRecord {
   return {
@@ -39,14 +45,16 @@ function rejectedBy(agentId: string, filter: FilterName): CandidateRecord {
 }
 
 describe("the reason codes", () => {
-  test("are the six the charter names, the no-show refinement's and SuperPipeline's other verdict, one per filter", () => {
+  test("are the six the charter names, the no-show refinement's, the one-hold rule's, the ladder's and SuperPipeline's other verdict, one per filter", () => {
     expect([...REJECTION_REASONS].sort()).toEqual([
       "at-capacity",
       "capability-missing",
       "grant-denied",
+      "holding-another",
       "not-claimable",
       "not-idle",
       "not-on-roster",
+      "passed-over",
       "recently-no-show",
       "unhealthy",
     ]);
@@ -80,6 +88,7 @@ describe("a decision's invariants", () => {
     const placed: Decision = {
       kind: "placed",
       card: CARD,
+      tier: WINNER,
       chosen: "agt_a",
       candidates: [
         eligible("agt_a", 2),
@@ -92,6 +101,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "none-eligible",
         candidates: [rejectedBy("agt_a", "health")],
       }),
@@ -100,6 +110,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "no-candidates",
         candidates: [],
       }),
@@ -111,6 +122,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "placed",
         card: CARD,
+        tier: WINNER,
         chosen: "agt_z",
         candidates: [eligible("agt_a")],
       }),
@@ -119,6 +131,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "placed",
         card: CARD,
+        tier: WINNER,
         chosen: "agt_a",
         candidates: [rejectedBy("agt_a", "roster")],
       }),
@@ -139,6 +152,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "none-eligible",
         candidates: [unscored, scoredReject, infinite],
       }),
@@ -165,6 +179,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "none-eligible",
         candidates: [eligible("agt_a"), eligible("agt_a"), twice, mislabelled],
       }),
@@ -181,6 +196,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "no-candidates",
         candidates: [rejectedBy("agt_a", "idle")],
       }),
@@ -189,6 +205,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "none-eligible",
         candidates: [],
       }),
@@ -197,6 +214,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "none-eligible",
         candidates: [eligible("agt_a")],
       }),
@@ -205,6 +223,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "one-candidate",
         candidates: [eligible("agt_a"), eligible("agt_b")],
       }),
@@ -213,6 +232,7 @@ describe("a decision's invariants", () => {
       decisionProblems({
         kind: "none",
         card: CARD,
+        tier: WINNER,
         reason: "one-candidate",
         candidates: [eligible("agt_a"), rejectedBy("agt_b", "roster")],
       }),
@@ -321,6 +341,7 @@ describe("place: the filters", () => {
       agent("agt_x", { roster: { busy: true } }),
       "not-idle",
     ],
+    ["holding another card", agent("agt_x", { holds: 1 }), "holding-another"],
     [
       "with two holds lapsed in the window",
       agent("agt_x", {
@@ -376,15 +397,16 @@ describe("place: the filters", () => {
 });
 
 describe("place: the score", () => {
-  test("load first: the agent holding fewer cards wins, whatever else", () => {
+  test("an agent holding a card is never held for a second, whatever its record: one live hold each", () => {
     const d = decide(
       agent("agt_a", { holds: 1, history: { settled: 10, claimed: 10 } }),
       agent("agt_b", { roster: { lastDispatchedAtMs: NOW } }),
     );
     expect(chosen(d)).toBe("agt_b");
+    expect(verdicts(d).agt_a).toBe("holding-another");
   });
 
-  test("then the success rate on this board, smoothed", () => {
+  test("the success rate on this board, smoothed", () => {
     const d = decide(
       agent("agt_a", { history: { settled: 4, claimed: 1 } }),
       agent("agt_b", { history: { settled: 4, claimed: 3 } }),
@@ -427,9 +449,9 @@ describe("place: the score", () => {
 
   test("totals rank the eligible, best highest; a rejected candidate has no score", () => {
     const d = decide(
-      agent("agt_a", { holds: 2 }),
-      agent("agt_b"),
-      agent("agt_c", { holds: 1 }),
+      agent("agt_a", { history: { settled: 4, claimed: 0 } }),
+      agent("agt_b", { history: { settled: 4, claimed: 4 } }),
+      agent("agt_c"),
       agent("agt_x", { roster: { ready: false } }),
     );
     expect(
@@ -499,6 +521,254 @@ describe("place: the decision", () => {
   });
 
   test("the policy has a name to record", () => {
-    expect(POLICY).toBe("idle-load-success-lru@1");
+    expect(POLICY).toBe("idle-success-lru@2");
+  });
+});
+
+/** A card at a ladder step: these agents' holds on it already lapsed. */
+function decideAt(
+  passedOver: string[],
+  tiers: TierSettings,
+  ...candidates: CandidateFacts[]
+): Decision {
+  const decision = place({
+    card: CARD,
+    nowMs: NOW,
+    candidates,
+    ladder: { passedOver },
+    tiers,
+  });
+  expect(decisionProblems(decision)).toEqual([]);
+  return decision;
+}
+
+describe("tiers", () => {
+  const tiers: TierSettings = {
+    winnerSeconds: 60,
+    runnerUpSeconds: 30,
+    topK: 3,
+  };
+
+  test("the defaults: the winner for 60 s, runner-ups for 30 s, three holds", () => {
+    expect(DEFAULT_TIERS).toEqual(tiers);
+  });
+
+  test("step 1 is the winner, steps 2 to k the runner-up, then any match", () => {
+    expect([1, 2, 3, 4, 9].map((step) => tierFor(step, tiers))).toEqual([
+      { name: "winner", step: 1, holdSeconds: 60 },
+      { name: "runner-up", step: 2, holdSeconds: 30 },
+      { name: "runner-up", step: 3, holdSeconds: 30 },
+      { name: "any-match", step: 4, holdSeconds: null },
+      { name: "any-match", step: 9, holdSeconds: null },
+    ]);
+    // k = 1: the winner, then any match.
+    expect(tierFor(2, { ...tiers, topK: 1 }).name).toBe("any-match");
+    expect(tierFor(1, { ...tiers, topK: 1 }).name).toBe("winner");
+    // A step below 1 is step 1.
+    expect(tierFor(0, tiers).step).toBe(1);
+  });
+
+  test("a new ladder holds for the winner, in the winner tier", () => {
+    const d = decideAt([], tiers, agent("agt_a"), agent("agt_b"));
+    expect(d).toMatchObject({
+      kind: "placed",
+      chosen: "agt_a",
+      tier: { name: "winner", step: 1, holdSeconds: 60 },
+    });
+  });
+
+  test("after the winner's hold lapsed: the runner-up is held for, and the winner is recorded as passed over", () => {
+    const d = decideAt(
+      ["agt_a"],
+      tiers,
+      agent("agt_a"),
+      agent("agt_b"),
+      agent("agt_c"),
+    );
+    expect(d).toMatchObject({
+      kind: "placed",
+      chosen: "agt_b",
+      tier: { name: "runner-up", step: 2, holdSeconds: 30 },
+    });
+    expect(verdicts(d)).toEqual({
+      agt_a: "passed-over",
+      agt_b: "ok",
+      agt_c: "ok",
+    });
+  });
+
+  test("the third hold goes to the next not passed over; then the card is open to any match", () => {
+    const third = decideAt(
+      ["agt_a", "agt_b"],
+      tiers,
+      agent("agt_a"),
+      agent("agt_b"),
+      agent("agt_c"),
+    );
+    expect(third).toMatchObject({
+      chosen: "agt_c",
+      tier: { name: "runner-up", step: 3 },
+    });
+    const open = decideAt(
+      ["agt_a", "agt_b", "agt_c"],
+      tiers,
+      agent("agt_a"),
+      agent("agt_b"),
+      agent("agt_c"),
+      agent("agt_d"),
+    );
+    // agt_d is eligible, but the tiers are spent: nothing is held, and pull decides.
+    expect(open).toMatchObject({
+      kind: "none",
+      reason: "any-match",
+      tier: { name: "any-match", step: 4, holdSeconds: null },
+    });
+    expect(verdicts(open).agt_d).toBe("ok");
+  });
+
+  test("a runner-up step with nobody left to hold for opens the card at once", () => {
+    const d = decideAt(
+      ["agt_a"],
+      tiers,
+      agent("agt_a"),
+      agent("agt_b", { roster: { busy: true } }),
+    );
+    expect(d).toMatchObject({
+      kind: "none",
+      reason: "any-match",
+      tier: { name: "any-match", step: 2, holdSeconds: null },
+    });
+  });
+
+  test("the winner tier with nobody eligible is none-eligible, not any-match: there was no hold to relax", () => {
+    const d = decideAt(
+      [],
+      tiers,
+      agent("agt_a", { roster: { busy: true } }),
+      agent("agt_b", { roster: { ready: false } }),
+    );
+    expect(d).toMatchObject({ reason: "none-eligible", tier: WINNER });
+  });
+
+  test("nobody eligible only because a free agent holds another card: the card waits, at its tier", () => {
+    // In the winner tier too.
+    expect(
+      chosen(
+        decideAt(
+          [],
+          tiers,
+          agent("agt_a", { holds: 1 }),
+          agent("agt_b", { roster: { busy: true } }),
+        ),
+      ),
+    ).toBe("waiting-on-holds");
+    const waiting = decideAt(
+      ["agt_a"],
+      tiers,
+      agent("agt_a"),
+      agent("agt_b", { holds: 1 }),
+    );
+    expect(waiting).toMatchObject({
+      kind: "none",
+      reason: "waiting-on-holds",
+      tier: { name: "runner-up", step: 2 },
+    });
+    // A passed-over agent that also holds a card is not one to wait for.
+    const spent = decideAt(
+      ["agt_a"],
+      tiers,
+      agent("agt_a", { holds: 1 }),
+      agent("agt_b", { roster: { busy: true } }),
+    );
+    expect(chosen(spent)).toBe("any-match");
+  });
+
+  test("k = 1: the winner, then any match", () => {
+    const d = decideAt(
+      ["agt_a"],
+      { ...tiers, topK: 1 },
+      agent("agt_a"),
+      agent("agt_b"),
+    );
+    expect(chosen(d)).toBe("any-match");
+  });
+
+  test("a decision's tier agrees with its kind", () => {
+    const anyMatch = tierFor(4, tiers);
+    expect(
+      decisionProblems({
+        kind: "placed",
+        card: CARD,
+        chosen: "agt_a",
+        tier: anyMatch,
+        candidates: [eligible("agt_a")],
+      }),
+    ).toEqual([
+      "placed in the any-match tier, which holds nothing",
+      "placed with no hold",
+    ]);
+    expect(
+      decisionProblems({
+        kind: "none",
+        card: CARD,
+        reason: "any-match",
+        tier: WINNER,
+        candidates: [eligible("agt_a")],
+      }),
+    ).toEqual(["any-match, in the winner tier"]);
+  });
+});
+
+describe("fairness across boards", () => {
+  const card = (id: string, waitedMin: number) => ({
+    id,
+    since: NOW - waitedMin * MIN,
+  });
+  const ids = (q: { boardId: string; item: { id: string } }[]) =>
+    q.map((e) => `${e.boardId}/${e.item.id}`);
+
+  test("one card from each board a round, the longest-waiting first within a round", () => {
+    const busy = {
+      boardId: "brd_busy",
+      items: [card("b1", 5), card("b2", 50), card("b3", 1), card("b4", 1)],
+    };
+    const quiet = { boardId: "brd_quiet", items: [card("q1", 2)] };
+    const other = {
+      boardId: "brd_other",
+      items: [card("o1", 9), card("o2", 9)],
+    };
+    expect(ids(fairOrder([busy, quiet, other], (c) => c.since))).toEqual([
+      // Round 1: o1 waited 9 minutes, b1 5, q1 2.
+      "brd_other/o1",
+      "brd_busy/b1",
+      "brd_quiet/q1",
+      // Round 2.
+      "brd_busy/b2",
+      "brd_other/o2",
+      // The busy board's rest.
+      "brd_busy/b3",
+      "brd_busy/b4",
+    ]);
+  });
+
+  test("a board keeps its own order inside its queue, and a tie goes to the lower board id", () => {
+    const a = { boardId: "brd_b", items: [card("x", 1), card("y", 99)] };
+    const b = { boardId: "brd_a", items: [card("z", 1)] };
+    expect(ids(fairOrder([a, b], (c) => c.since))).toEqual([
+      "brd_a/z",
+      "brd_b/x",
+      "brd_b/y",
+    ]);
+    expect(fairOrder([], (c: { since: number }) => c.since)).toEqual([]);
+  });
+
+  test("board order, without fairness: every card of one board before the next", () => {
+    const busy = { boardId: "brd_busy", items: [card("b1", 1), card("b2", 1)] };
+    const quiet = { boardId: "brd_quiet", items: [card("q1", 99)] };
+    expect(ids(boardOrder([busy, quiet]))).toEqual([
+      "brd_busy/b1",
+      "brd_busy/b2",
+      "brd_quiet/q1",
+    ]);
   });
 });
