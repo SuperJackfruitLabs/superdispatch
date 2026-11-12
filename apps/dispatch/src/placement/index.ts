@@ -762,21 +762,24 @@ const LOAD_FILTERS: ReadonlySet<FilterName> = new Set<FilterName>([
 ]);
 
 /**
- * Did a candidate fail only for its load? `health` counts as load only while the agent has no room
- * (`isIdle` false, by its load in the shared shape): a bridge at its concurrency answers not ready,
- * and that passes with the work; an agent unhealthy while idle is not waited for.
+ * Did a candidate fail only for its load? `health` counts as load only while the agent has no room:
+ * by its load in the shared shape (`isIdle` false), or by SuperPipeline's word (the `capacity`
+ * filter failed: the agent is at its concurrency on this board). A bridge at its concurrency answers
+ * not ready, and that passes with the work, even while its station reads not busy anywhere; an
+ * agent unhealthy with room to spare is not waited for.
  */
 function onlyLoad(
   facts: CandidateFacts,
   filters: readonly FilterResult[],
 ): boolean {
   const failed = filters.filter((r) => !r.passed);
+  const noRoom =
+    (facts.load !== null && !isIdle(facts.load)) ||
+    failed.some((r) => r.filter === "capacity");
   return (
     failed.length > 0 &&
     failed.every(
-      (r) =>
-        LOAD_FILTERS.has(r.filter) ||
-        (r.filter === "health" && facts.load !== null && !isIdle(facts.load)),
+      (r) => LOAD_FILTERS.has(r.filter) || (r.filter === "health" && noRoom),
     )
   );
 }
