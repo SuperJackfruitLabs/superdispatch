@@ -5,6 +5,10 @@ import {
   createAgentpod,
   createServiceTokens,
   createSuperpipeline,
+  createSuperwitness,
+  verdictMark,
+  MAX_RUNS,
+  PAGE_SIZE,
   type ServiceTokens,
 } from "../src/sources/index.ts";
 import { fakeFetch } from "./helpers.ts";
@@ -467,5 +471,184 @@ describe("agentpod", () => {
     });
     expect((await thrown(refused.roster(BOARD))).code).toBe("unauthorized");
     expect(tokens.invalidated).toBe(1);
+  });
+});
+
+describe("superwitness", () => {
+  const SINCE = "2026-10-13T12:00:00.000Z";
+  const P1 = "prn_00000000000000000001";
+  const P2 = "prn_00000000000000000002";
+  /** The path and query the client asks for one page. */
+  const page = (cursor?: string) => {
+    const q = new URLSearchParams({
+      source: "superpipeline",
+      scope: BOARD,
+      stage_key: "build",
+    });
+    q.append("status", "succeeded");
+    q.append("status", "failed");
+    q.set("since", SINCE);
+    q.set("limit", String(PAGE_SIZE));
+    if (cursor !== undefined) q.set("cursor", cursor);
+    return `GET /v1/runs?${q}`;
+  };
+  const run = (over: Record<string, unknown> = {}) => ({
+    source: "superpipeline",
+    external_ref: `${BOARD}/run_1`,
+    scope: { id: BOARD, name: "B" },
+    stage_key: "build",
+    card_id: CARD,
+    executor: { id: P1, name: "a" },
+    status: "succeeded",
+    started_at: "2026-11-12T09:00:00Z",
+    ended_at: "2026-11-12T09:05:00Z",
+    latest_verdict: null,
+    ...over,
+  });
+
+  test("reads a stage's finished runs with this service's token, every page, keeping what it can join", async () => {
+    const f = fakeFetch({
+      [page()]: {
+        json: {
+          runs: [
+            run({ latest_verdict: { value: { decision: "pass" } } }),
+            run({
+              executor: { id: P2, name: "b" },
+              status: "failed",
+              ended_at: null,
+              latest_verdict: { value: { score: 0.25 } },
+            }),
+            // No executor id, another stage, a cancelled run, another board, no time: left out.
+            run({ executor: { name: "anon" } }),
+            run({ stage_key: "review" }),
+            run({ status: "cancelled" }),
+            run({ scope: { id: "brd_other" } }),
+            run({ started_at: null, ended_at: null }),
+          ],
+          next_cursor: "c2",
+        },
+      },
+      [page("c2")]: {
+        json: {
+          runs: [run({ latest_verdict: { value: { label: "meh" } } })],
+          next_cursor: null,
+        },
+      },
+    });
+    const tokens = countingTokens();
+    const client = createSuperwitness({
+      baseUrl: "https://sw.example/",
+      tokens,
+      fetch: f.fetch,
+    });
+    expect(
+      await client.stageRuns({
+        boardId: BOARD,
+        stageKey: "build",
+        since: SINCE,
+      }),
+    ).toEqual([
+      {
+        executor: P1,
+        succeeded: true,
+        at: "2026-11-12T09:05:00.000Z",
+        verdict: 1,
+      },
+      {
+        executor: P2,
+        succeeded: false,
+        at: "2026-11-12T09:00:00.000Z",
+        verdict: 0.25,
+      },
+      {
+        executor: P1,
+        succeeded: true,
+        at: "2026-11-12T09:05:00.000Z",
+        verdict: null,
+      },
+    ]);
+    expect(f.seen.map((s) => s.authorization)).toEqual([
+      "Bearer token-1",
+      "Bearer token-2",
+    ]);
+    expect(f.seen[0]?.url.startsWith("https://sw.example/v1/runs?")).toBe(true);
+  });
+
+  test(`stops at ${MAX_RUNS} runs, however many pages are left`, async () => {
+    let pages = 0;
+    const full = Array.from({ length: PAGE_SIZE }, () => run());
+    const impl = (async () => {
+      pages++;
+      // Ten pages on offer, twice the cap, so a client that ignored the cap would read them all.
+      return new Response(
+        JSON.stringify({ runs: full, next_cursor: pages < 10 ? "more" : null }),
+      );
+    }) as unknown as typeof fetch;
+    const client = createSuperwitness({
+      baseUrl: "https://sw.example",
+      tokens: countingTokens(),
+      fetch: impl,
+    });
+    const got = await client.stageRuns({
+      boardId: BOARD,
+      stageKey: "build",
+      since: SINCE,
+    });
+    expect(got.length).toBe(MAX_RUNS);
+    expect(pages).toBe(Math.ceil(MAX_RUNS / PAGE_SIZE));
+  });
+
+  test("a refusal throws with SuperWitness's code, a 401 drops the token, a malformed body or no answer throws", async () => {
+    const tokens = countingTokens();
+    const refused = createSuperwitness({
+      baseUrl: "https://sw.example",
+      tokens,
+      fetch: fakeFetch({
+        [page()]: { status: 401, json: { error: { code: "unauthenticated" } } },
+      }).fetch,
+    });
+    const q = { boardId: BOARD, stageKey: "build", since: SINCE };
+    const e = await thrown(refused.stageRuns(q));
+    expect([e.product, e.status, e.code]).toEqual([
+      "superwitness",
+      401,
+      "unauthenticated",
+    ]);
+    expect(tokens.invalidated).toBe(1);
+    const malformed = createSuperwitness({
+      baseUrl: "https://sw.example",
+      tokens: countingTokens(),
+      fetch: fakeFetch({ [page()]: { json: { runs: "no" } } }).fetch,
+    });
+    expect((await thrown(malformed.stageRuns(q))).code).toBe(
+      "malformed_response",
+    );
+    const down = createSuperwitness({
+      baseUrl: "https://sw.example",
+      tokens: countingTokens(),
+      fetch: fakeFetch({ [page()]: "throw" }).fetch,
+    });
+    const d = await thrown(down.stageRuns(q));
+    expect([d.status, d.code]).toEqual([0, "unreachable"]);
+    expect(d.message).not.toContain("token");
+  });
+
+  test("a verdict's pass mark: a score as it stands, a pass or fail decision, nothing else", () => {
+    const table: Array<[unknown, number | null]> = [
+      [{ score: 0.7 }, 0.7],
+      [{ score: 0 }, 0],
+      [{ score: 1.5 }, null],
+      [{ decision: "pass" }, 1],
+      [{ decision: " Approve " }, 1],
+      [{ decision: "accepted" }, 1],
+      [{ decision: "fail" }, 0],
+      [{ decision: "request_changes" }, 0],
+      [{ decision: "reject" }, 0],
+      [{ decision: "maybe" }, null],
+      [{ label: "good" }, null],
+      [{ text: "fine" }, null],
+      [null, null],
+    ];
+    for (const [value, mark] of table) expect(verdictMark(value)).toBe(mark);
   });
 });
