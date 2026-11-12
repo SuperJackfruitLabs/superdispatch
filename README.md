@@ -27,7 +27,8 @@ events, for that board) it:
    - **filters** every agent of the workspace: in the **candidate set** (`not-on-roster`; an
      agent outside it keeps working by pull; see below), SuperPipeline's own verdict
      (`capability-missing`, `grant-denied`, `at-capacity`, and `not-claimable` for any other
-     reason it gives), healthy by its load (`unhealthy`), room for work by its load (`not-idle`:
+     reason it gives), the workspace's **dispatch policy** in Accounts when it is on
+     (`policy-denied`; see below), healthy by its load (`unhealthy`), room for work by its load (`not-idle`:
      less in hand than its capacity on every board, which for a rostered agent is no work in hand
      at all, the workspace-wide cap, so a hold is only ever made for an idle agent), not holding another card (`holding-another`:
      one live hold per agent, since an agent claims one card at a time and a second hold could
@@ -107,6 +108,30 @@ Both sources give one shape, and the health and idle filters read only that:
 Idle is `inFlight < capacity`. A direct agent never heard from is not healthy: nothing says it is
 there, so it keeps pulling until it has run once. Every candidate record carries its `source`, and
 the least-recently-used term reads `lastSeenAt` for both.
+
+### The dispatch policy
+
+`SUPERDISPATCH_POLICY=on` asks Accounts' dispatch policy who may take each card
+(`POST /api/policy/decide`, which needs the scope `policy:decide` on this service's credential).
+`off`, the default, asks nothing, and the filter passes everyone. The policy only narrows: an agent
+SuperPipeline already refuses on the card's grant is never asked about, and a policy never adds an
+agent the grant leaves out. The design is the sketchbook idea `2026-11-13-dispatch-policy`.
+
+- **One question per agent, board stage, labels and capabilities a pass**, at most. SuperPipeline
+  cards carry no labels yet, so none are sent; the capabilities are the stage's `requires`.
+- **The answer is the verdict**, recorded on the candidate (`policy: {allow, reasons,
+policyVersion}`). A workspace with no policy answers `no-policy`, which allows.
+- **Limits**: an allowed agent that already had `maxRuns` holds from SuperDispatch within the
+  last `windowHours` is rejected (`limit:<id>`). It counts holds SuperDispatch made, so it limits
+  what is steered to an agent, not what the agent pulls.
+- **Accounts could not answer** (unreachable, a refusal, an answer that cannot be read): if the
+  last answer said the workspace has no policy, the candidate passes. Otherwise, including a cold
+  start, it is rejected (`policy-unread`). That fails closed, and costs only the advice: a card
+  nobody is held for is still claimed by pull. An agent with no principal cannot be asked about,
+  so it is treated the same way (`no-principal`).
+
+A pull ignores the policy: SuperPipeline does not enforce it on claim yet. Until it does, policy
+here is advice like the rest of SuperDispatch.
 
 ### History in the score
 
@@ -244,6 +269,7 @@ curl http://127.0.0.1:8796/healthz
 | `SUPERDISPATCH_CANDIDATES`             | `roster` (the roster alone) or `all` (also agents with their own token that report load); `roster` when unset |
 | `SUPERDISPATCH_STATION_FILTERS`        | `on` (a stage's placement filters on AgentPod's capability registry) or `off`; `on` when unset                |
 | `SUPERDISPATCH_MIN_PROOF`              | The weakest registry proof that satisfies a need: `probed`, `installed` or `declared`; `declared` when unset  |
+| `SUPERDISPATCH_POLICY`                 | `off` or `on` (ask Accounts' dispatch policy, which needs `policy:decide`); `off` when unset                  |
 | `SUPERDISPATCH_SUGGEST_EVERY_SECONDS`  | The least time between two computations of the roster suggestions, 0 to 86400; 0 (every sweep) when unset     |
 | `SUPERDISPATCH_SUGGEST_WINDOW_HOURS`   | Hours of decisions the roster suggestions read, 1 to 720; 24 when unset                                       |
 | `SUPERDISPATCH_STALL_MINUTES`          | Minutes a card waits with nobody eligible before its lane is suggested for, 1 to 1440; 30 when unset          |
