@@ -45,6 +45,9 @@ describe("loadConfig", () => {
       runnerUpSeconds: 30,
       topK: 3,
       fairness: "round-robin",
+      suggestEverySeconds: 0,
+      suggestWindowHours: 24,
+      stallMinutes: 30,
       dataDir: "/data",
       operatorTokenSha256: OPERATOR_TOKEN_SHA256,
     });
@@ -176,6 +179,36 @@ describe("loadConfig", () => {
       problems({ ...FULL, SUPERDISPATCH_RUNNER_UP_SECONDS: "301" }),
     ).toEqual([
       "SUPERDISPATCH_RUNNER_UP_SECONDS is not a whole number from 10 to 300",
+    ]);
+  });
+
+  test("takes the roster suggestion settings, within their ranges, and names the setting it refuses", () => {
+    const c = loadConfig({
+      ...FULL,
+      SUPERDISPATCH_SUGGEST_EVERY_SECONDS: "300",
+      SUPERDISPATCH_SUGGEST_WINDOW_HOURS: "72",
+      SUPERDISPATCH_STALL_MINUTES: "10",
+    });
+    expect([
+      c.suggestEverySeconds,
+      c.suggestWindowHours,
+      c.stallMinutes,
+    ]).toEqual([300, 72, 10]);
+    expect(
+      loadConfig({ ...FULL, SUPERDISPATCH_SUGGEST_EVERY_SECONDS: "0" })
+        .suggestEverySeconds,
+    ).toBe(0);
+    expect(
+      problems({
+        ...FULL,
+        SUPERDISPATCH_SUGGEST_EVERY_SECONDS: "86401",
+        SUPERDISPATCH_SUGGEST_WINDOW_HOURS: "0",
+        SUPERDISPATCH_STALL_MINUTES: "1441",
+      }),
+    ).toEqual([
+      "SUPERDISPATCH_SUGGEST_EVERY_SECONDS is not a whole number from 0 to 86400",
+      "SUPERDISPATCH_SUGGEST_WINDOW_HOURS is not a whole number from 1 to 720",
+      "SUPERDISPATCH_STALL_MINUTES is not a whole number from 1 to 1440",
     ]);
   });
 

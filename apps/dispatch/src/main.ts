@@ -46,6 +46,11 @@ const loop = createLoop({
     topK: config.topK,
   },
   fairness: config.fairness,
+  suggestions: {
+    everyMs: config.suggestEverySeconds * 1000,
+    windowMs: config.suggestWindowHours * 3600 * 1000,
+    stallAfterMs: config.stallMinutes * 60 * 1000,
+  },
   now: Date.now,
   newId: () => `pld_${randomBytes(12).toString("hex")}`,
 });

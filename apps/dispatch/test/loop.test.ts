@@ -4,8 +4,11 @@ import {
   NUDGE_DELAY_MS,
   REDECIDE_AFTER_MS,
   SWEEP_MAX_BACKOFF,
+  DEFAULT_SUGGESTIONS,
   createLoop,
   ladderOf,
+  refreshSuggestions,
+  type SuggestionSettings,
   outcomeOf,
   shouldDecide,
   startRunner,
@@ -42,19 +45,44 @@ afterEach(() => {
  * time, and only for an agent the eligibility read allows.
  */
 function world(
-  options: { tiers?: Partial<TierSettings>; fairness?: Fairness } = {},
+  options: {
+    tiers?: Partial<TierSettings>;
+    fairness?: Fairness;
+    suggestions?: SuggestionSettings;
+  } = {},
 ) {
   const t = tempStore();
   cleanups.push(t.cleanup);
+  let syncs = 0;
+  const sync = t.store.syncSuggestions;
+  t.store.syncSuggestions = (...args) => {
+    syncs++;
+    return sync(...args);
+  };
   let now = T0;
   let ids = 0;
   const calls: string[] = [];
   const log: string[] = [];
 
   const stages: BoardView["stages"] = [
-    { key: "build", ownerKind: "capability", hasRequires: false },
-    { key: "approve", ownerKind: "human", hasRequires: false },
-    { key: "pinned", ownerKind: "agent", hasRequires: false },
+    {
+      key: "build",
+      ownerKind: "capability",
+      hasRequires: false,
+      requires: { all: ["code"], any: [] },
+    },
+    {
+      key: "approve",
+      ownerKind: "human",
+      hasRequires: false,
+      requires: { all: [], any: [] },
+    },
+    {
+      key: "pinned",
+      ownerKind: "agent",
+      hasRequires: false,
+      requires: { all: [], any: [] },
+    },
   ];
   const boards = new Map<string, Map<string, CardView>>([
     [BOARD, new Map()],
@@ -179,8 +207,10 @@ function world(
       ...options.tiers,
     },
     fairness: options.fairness ?? "round-robin",
+    ...(options.suggestions ? { suggestions: options.suggestions } : {}),
     now: () => now,
     newId: () => `pld_${String(++ids).padStart(24, "0")}`,
+    newSuggestionId: () => `sug_${String(++ids).padStart(24, "0")}`,
     log: (line) => log.push(line),
   });
   /** An agent claims a card, as SuperPipeline's claim would record it. */
@@ -206,6 +236,11 @@ function world(
   return {
     store: t.store,
     loop,
+    superpipeline,
+    agentpod,
+    get syncs() {
+      return syncs;
+    },
     calls,
     log,
     cards,
@@ -979,6 +1014,7 @@ describe("the runner", () => {
     ];
     let passes = 0;
     const loop: Loop = {
+      suggest: () => ({ opened: 0, updated: 0, resolved: 0 }),
       passAll: async () => results[passes++] ?? { boards: 0, failedBoards: 0 },
       passBoard: async () => ({
         boardId: "",
@@ -1013,6 +1049,7 @@ describe("the runner", () => {
     const order: string[] = [];
     let release: () => void = () => {};
     const loop: Loop = {
+      suggest: () => ({ opened: 0, updated: 0, resolved: 0 }),
       passAll: () =>
         new Promise((resolve) => {
           order.push("sweep start");
@@ -1051,5 +1088,139 @@ describe("the runner", () => {
       "board brd_00000000000000b2",
     ]);
     runner.stop();
+  });
+});
+
+describe("roster suggestions", () => {
+  test("a lane with one rostered candidate and a capable agent off the roster: a suggestion to add it, resolved once the lane has two", async () => {
+    const w = world();
+    opted(w);
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_x", { roster: null });
+    w.addAgent("agt_y", { roster: null, reasons: ["capability_mismatch"] });
+    await w.loop.passAll();
+    const [d] = w.store.listDecisions({ limit: 1 });
+    expect(d?.noDecisionReason).toBe("one-candidate");
+    expect(d?.requires).toEqual({ all: ["code"], any: [] });
+    const [s] = w.store.listSuggestions({});
+    expect(s).toMatchObject({
+      kind: "add-agent-to-board",
+      boardId: BOARD,
+      stageKey: "build",
+      body: {
+        capability: { all: ["code"], any: [] },
+        rostered: ["agt_a"],
+        candidates: [
+          { agentId: "agt_x", principalId: "prn_agt_x", stationId: null },
+        ],
+        reasons: ["one-candidate"],
+      },
+      evidence: [d!.id],
+      evidenceCount: 1,
+    });
+    // Nothing was written to a roster: the roster is as it was, and the only writes made were the
+    // placement's (none here: one candidate holds nothing).
+    expect(
+      w.calls.filter((c) => !/^(board|roster|eligibility) /.test(c)),
+    ).toEqual([]);
+
+    // A person adds agt_x to the board; the next decision sees two, and the suggestion resolves.
+    w.addAgent("agt_x");
+    w.advance(REDECIDE_AFTER_MS);
+    await w.loop.passAll();
+    expect(w.store.listSuggestions({})).toEqual([]);
+    expect(w.store.listSuggestions({ state: "resolved" })).toHaveLength(1);
+  });
+
+  test("computing them reads the store alone: no source is called, and no write reaches another product", async () => {
+    const w = world();
+    opted(w);
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    w.addAgent("agt_x", { roster: null });
+    await w.loop.passAll();
+    const before = [...w.calls];
+    const touched: string[] = [];
+    const tripwire = <T extends object>(name: string, target: T): T =>
+      new Proxy(target, {
+        get(obj, key, receiver) {
+          touched.push(`${name}.${String(key)}`);
+          return Reflect.get(obj, key, receiver);
+        },
+      });
+    const sp = tripwire("superpipeline", w.superpipeline);
+    const ap = tripwire("agentpod", w.agentpod);
+    expect(
+      refreshSuggestions({
+        store: w.store,
+        nowMs: T0 + 10 * S,
+        newId: () => "sug_00000000000000000000000f",
+      }).updated,
+    ).toBe(1);
+    // A loop whose sources record every touch computes them without one.
+    const watched = createLoop({
+      store: w.store,
+      superpipeline: sp,
+      agentpod: ap,
+      now: () => T0 + 20 * S,
+      newId: () => "pld_00000000000000000000000f",
+      log: () => {},
+    });
+    expect(watched.suggest().updated).toBe(1);
+    expect(w.calls).toEqual(before);
+    expect(touched).toEqual([]);
+  });
+
+  test("computed on each sweep by default; with a setting, at most once in that time", async () => {
+    const every = world();
+    opted(every);
+    await every.loop.passAll();
+    await every.loop.passAll();
+    expect(every.syncs).toBe(2);
+
+    const w = world({
+      suggestions: { ...DEFAULT_SUGGESTIONS, everyMs: 10 * 60 * S },
+    });
+    opted(w);
+    await w.loop.passAll();
+    w.advance(10 * 60 * S - S);
+    await w.loop.passAll();
+    expect(w.syncs).toBe(1);
+    w.advance(S);
+    await w.loop.passAll();
+    expect(w.syncs).toBe(2);
+    // A nudge is one board, not a sweep: it computes nothing.
+    await w.loop.passBoard(BOARD);
+    expect(w.syncs).toBe(2);
+  });
+
+  test("a board opted out is not suggested for; its open suggestions resolve", async () => {
+    const w = world();
+    opted(w);
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    await w.loop.passAll();
+    expect(w.store.listSuggestions({})).toMatchObject([
+      { kind: "lane-single-point" },
+    ]);
+    w.store.disableBoard(BOARD, new Date(T0).toISOString());
+    w.loop.suggest();
+    expect(w.store.listSuggestions({})).toEqual([]);
+  });
+
+  test("decisions older than the window are not read", async () => {
+    const w = world({
+      suggestions: { ...DEFAULT_SUGGESTIONS, windowMs: 3600 * S },
+    });
+    opted(w);
+    w.addCard(CARD);
+    w.addAgent("agt_a");
+    await w.loop.passAll();
+    expect(w.store.listSuggestions({})).toHaveLength(1);
+    w.cards.delete(CARD);
+    w.advance(3600 * S + S);
+    await w.loop.passAll();
+    expect(w.store.listSuggestions({})).toEqual([]);
   });
 });
