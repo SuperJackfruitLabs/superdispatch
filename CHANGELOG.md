@@ -34,6 +34,12 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
   `none-eligible` and left alone for five minutes (`waiting-on-load`). Before, on a board where
   every agent had work in hand, a freed agent pulled the next card before SuperDispatch looked
   again, so nothing on a loaded board was ever placed.
+- History in the score: with `SUPERWITNESS_URL` set, each candidate's record at the card's stage
+  (SuperWitness's finished runs there: outcome rate and verdict pass rate, recency-weighted,
+  neutral below a minimum sample) ranks first, and is recorded on each candidate. SuperWitness
+  absent or failing leaves the score as before. Settings: `SUPERWITNESS_AUDIENCE`,
+  `SUPERDISPATCH_HISTORY_DAYS`, `SUPERDISPATCH_HISTORY_MIN_SAMPLE`,
+  `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS`. The policy is now `idle-stage-success-lru@3`.
 - A sweep of every opted-in board every 30 seconds, and a look at a board as soon as the event
   relay delivers one of its events.
 - The operator API: opt a board in or out (`/v1/boards`), and read the decisions

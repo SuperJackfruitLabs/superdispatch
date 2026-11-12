@@ -76,6 +76,14 @@ export const DEFAULT_SUGGEST_WINDOW_HOURS = 24;
  * `SUPERDISPATCH_STALL_MINUTES` is unset.
  */
 export const DEFAULT_STALL_MINUTES = 30;
+/** How many days of a stage's runs are read from SuperWitness when `SUPERDISPATCH_HISTORY_DAYS` is unset. */
+export const DEFAULT_HISTORY_DAYS = 30;
+
+/** The fewest runs a stage rate is read from when `SUPERDISPATCH_HISTORY_MIN_SAMPLE` is unset. */
+export const DEFAULT_HISTORY_MIN_SAMPLE = 3;
+
+/** Days in which a run's weight halves when `SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS` is unset. */
+export const DEFAULT_HISTORY_HALF_LIFE_DAYS = 7;
 
 export interface Config {
   port: number;
@@ -93,6 +101,19 @@ export interface Config {
    */
   agentpodAudience: string;
   relayDeliverySecret: string;
+  /**
+   * SuperWitness's API URL, for each stage's history; null when unset, and then placement weighs
+   * the board's own history only.
+   */
+  superwitnessUrl: string | null;
+  /** The audience of this service's tokens for SuperWitness: its public URL. */
+  superwitnessAudience: string | null;
+  /** Days of a stage's runs read. */
+  historyDays: number;
+  /** The fewest runs a stage rate is read from; below it the rate is neutral. */
+  historyMinSample: number;
+  /** Days in which a run's weight halves. */
+  historyHalfLifeDays: number;
   /** Seconds between two sweeps of every opted-in board. */
   sweepSeconds: number;
   /** Seconds SuperPipeline holds a card for the winner: the first tier. */
@@ -151,12 +172,18 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 
   const explicitAudience = env.AGENTPOD_AUDIENCE?.trim() ?? "";
   const agentpodAudience = explicitAudience || agentpodUrl;
+  const superwitnessUrl = env.SUPERWITNESS_URL?.trim() ?? "";
+  const superwitnessAudience = env.SUPERWITNESS_AUDIENCE?.trim() ?? "";
+  if (superwitnessAudience !== "" && superwitnessUrl === "")
+    problems.push("SUPERWITNESS_AUDIENCE is set without SUPERWITNESS_URL");
 
   for (const [name, value] of [
     ["SUPERPIPELINE_URL", superpipelineUrl],
     ["ORG_PLANE_URL", orgPlaneUrl],
     ["AGENTPOD_URL", agentpodUrl],
     ["AGENTPOD_AUDIENCE", explicitAudience],
+    ["SUPERWITNESS_URL", superwitnessUrl],
+    ["SUPERWITNESS_AUDIENCE", superwitnessAudience],
   ] as const) {
     if (value !== "" && !isHttpUrl(value)) {
       problems.push(`${name} is not an http(s) URL`);
@@ -226,6 +253,30 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     10,
     problems,
   );
+  const historyDays = wholeNumber(
+    env,
+    "SUPERDISPATCH_HISTORY_DAYS",
+    DEFAULT_HISTORY_DAYS,
+    1,
+    365,
+    problems,
+  );
+  const historyMinSample = wholeNumber(
+    env,
+    "SUPERDISPATCH_HISTORY_MIN_SAMPLE",
+    DEFAULT_HISTORY_MIN_SAMPLE,
+    1,
+    100,
+    problems,
+  );
+  const historyHalfLifeDays = wholeNumber(
+    env,
+    "SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS",
+    DEFAULT_HISTORY_HALF_LIFE_DAYS,
+    1,
+    365,
+    problems,
+  );
   let fairness = DEFAULT_FAIRNESS;
   const rawFairness = env.SUPERDISPATCH_FAIRNESS?.trim();
   if (rawFairness) {
@@ -274,6 +325,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     agentpodUrl,
     agentpodAudience,
     relayDeliverySecret,
+    superwitnessUrl: superwitnessUrl || null,
+    superwitnessAudience: superwitnessUrl
+      ? superwitnessAudience || superwitnessUrl
+      : null,
+    historyDays,
+    historyMinSample,
+    historyHalfLifeDays,
     sweepSeconds,
     reservationSeconds,
     runnerUpSeconds,

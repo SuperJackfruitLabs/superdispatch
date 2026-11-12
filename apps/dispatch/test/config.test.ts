@@ -40,6 +40,11 @@ describe("loadConfig", () => {
       agentpodUrl: "https://hub.example",
       agentpodAudience: "https://hub.example",
       relayDeliverySecret: "relay-secret-for-tests",
+      superwitnessUrl: null,
+      superwitnessAudience: null,
+      historyDays: 30,
+      historyMinSample: 3,
+      historyHalfLifeDays: 7,
       sweepSeconds: 30,
       reservationSeconds: 60,
       runnerUpSeconds: 30,
@@ -123,6 +128,58 @@ describe("loadConfig", () => {
     ).toBe("https://hub.public.example");
     expect(problems({ ...FULL, AGENTPOD_AUDIENCE: "hub" })).toEqual([
       "AGENTPOD_AUDIENCE is not an http(s) URL",
+    ]);
+  });
+
+  test("takes SuperWitness's URL and audience, the audience defaulting to the URL; neither is required", () => {
+    const c = loadConfig({ ...FULL, SUPERWITNESS_URL: "https://sw.example" });
+    expect([c.superwitnessUrl, c.superwitnessAudience]).toEqual([
+      "https://sw.example",
+      "https://sw.example",
+    ]);
+    expect(
+      loadConfig({
+        ...FULL,
+        SUPERWITNESS_URL: "http://sw.internal:8080",
+        SUPERWITNESS_AUDIENCE: "https://sw.example",
+      }).superwitnessAudience,
+    ).toBe("https://sw.example");
+    expect(
+      problems({
+        ...FULL,
+        SUPERWITNESS_URL: "sw",
+        SUPERWITNESS_AUDIENCE: "aud",
+      }),
+    ).toEqual([
+      "SUPERWITNESS_URL is not an http(s) URL",
+      "SUPERWITNESS_AUDIENCE is not an http(s) URL",
+    ]);
+    expect(
+      problems({ ...FULL, SUPERWITNESS_AUDIENCE: "https://sw.example" }),
+    ).toEqual(["SUPERWITNESS_AUDIENCE is set without SUPERWITNESS_URL"]);
+  });
+
+  test("takes the history window, minimum sample and half-life, within their ranges", () => {
+    const c = loadConfig({
+      ...FULL,
+      SUPERDISPATCH_HISTORY_DAYS: "14",
+      SUPERDISPATCH_HISTORY_MIN_SAMPLE: "5",
+      SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS: "2",
+    });
+    expect([c.historyDays, c.historyMinSample, c.historyHalfLifeDays]).toEqual([
+      14, 5, 2,
+    ]);
+    expect(
+      problems({
+        ...FULL,
+        SUPERDISPATCH_HISTORY_DAYS: "0",
+        SUPERDISPATCH_HISTORY_MIN_SAMPLE: "101",
+        SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS: "366",
+      }),
+    ).toEqual([
+      "SUPERDISPATCH_HISTORY_DAYS is not a whole number from 1 to 365",
+      "SUPERDISPATCH_HISTORY_MIN_SAMPLE is not a whole number from 1 to 100",
+      "SUPERDISPATCH_HISTORY_HALF_LIFE_DAYS is not a whole number from 1 to 365",
     ]);
   });
 
@@ -230,6 +287,8 @@ describe("loadConfig", () => {
       SUPERDISPATCH_DATA_DIR: "relative/secret-path",
       SUPERDISPATCH_FAIRNESS: "leaky-fairness",
       SUPERDISPATCH_TOP_K: "77",
+      SUPERWITNESS_URL: "leaky-witness-url",
+      SUPERDISPATCH_HISTORY_DAYS: "9999",
     };
     let message = "";
     try {

@@ -17,8 +17,11 @@
  * 4. **Place the cards, fairly across boards** (placement's `fairOrder`: one card from each board
  *    a round, the longest-waiting first), so a busy board does not take every free agent before a
  *    quiet board's card is looked at. For each: read its eligibility from SuperPipeline, add what
- *    the store remembers (history on this board, recent no-shows, live holds, the card's ladder),
- *    and let placement choose at the card's tier. Record the decision, then ask SuperPipeline to
+ *    the store remembers (history on this board, recent no-shows, live holds, the card's ladder)
+ *    and, when SuperWitness is configured, each candidate's finished runs at the card's stage (read
+ *    once a pass for each board stage), and let placement choose at the card's tier. SuperWitness
+ *    absent or failing never stops a placement: the stage history is then left out and placement
+ *    ranks on the board's own history, as it did before. Record the decision, then ask SuperPipeline to
  *    hold the card for the winner for the tier's window.
  *
  * **Tiers.** SuperPipeline's hold names one agent, so the relaxation is a sequence of holds the
@@ -58,6 +61,7 @@ import type {
 } from "../store/index.ts";
 import {
   SourceError,
+  type Superwitness,
   type Agentpod,
   type BoardView,
   type CardView,
@@ -67,6 +71,7 @@ import {
 import { randomBytes } from "node:crypto";
 import {
   DEFAULT_STALL_AFTER_MS,
+  DEFAULT_HISTORY,
   DEFAULT_TIERS,
   NO_SHOW_WINDOW_MS,
   POLICY,
@@ -78,9 +83,14 @@ import {
   type Capability,
   type CandidateFacts,
   type Decision,
+  type HistorySettings,
   type Ladder,
+  type StageRun,
   type TierSettings,
 } from "../placement/index.ts";
+
+/** How much of a stage's history is read when the loop is given none: 30 days. */
+export const DEFAULT_HISTORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** How long a card whose last decision chose nobody, or was refused a hold, waits to be decided again. */
 export const REDECIDE_AFTER_MS = 5 * 60 * 1000;
@@ -177,6 +187,10 @@ export interface LoopDeps {
   store: Store;
   superpipeline: Superpipeline;
   agentpod: Agentpod;
+  /** SuperWitness, for each stage's history; null or unset when it is not configured. */
+  superwitness?: Superwitness | null;
+  /** How far back a stage's history is read, and how it weighs. */
+  history?: HistorySettings & { windowMs: number };
   /** How a card's ladder of holds relaxes; `DEFAULT_TIERS` when unset. */
   tiers?: TierSettings;
   /** How a sweep orders cards across boards; `round-robin` when unset. */
@@ -322,6 +336,58 @@ export function createLoop(deps: LoopDeps): Loop {
   const { store, superpipeline, agentpod } = deps;
   const tiers = deps.tiers ?? DEFAULT_TIERS;
   const fairness = deps.fairness ?? "round-robin";
+  const history = {
+    windowMs: DEFAULT_HISTORY_WINDOW_MS,
+    ...DEFAULT_HISTORY,
+    ...deps.history,
+  };
+
+  /**
+   * Each candidate's finished runs at one board stage, by principal; null when SuperWitness is not
+   * configured or did not answer. Read once a pass for each board stage (`seen`).
+   */
+  function stageRunsOf(
+    boardId: string,
+    stageKey: string,
+    nowMs: number,
+    seen: Map<string, Promise<Map<string, StageRun[]> | null>>,
+  ): Promise<Map<string, StageRun[]> | null> {
+    const sw = deps.superwitness;
+    if (sw === undefined || sw === null) return Promise.resolve(null);
+    const key = `${boardId} ${stageKey}`;
+    let read = seen.get(key);
+    if (read === undefined) {
+      read = sw
+        .stageRuns({
+          boardId,
+          stageKey,
+          since: new Date(nowMs - history.windowMs).toISOString(),
+        })
+        .then(
+          (runs) => {
+            const by = new Map<string, StageRun[]>();
+            for (const run of runs) {
+              const list = by.get(run.executor) ?? [];
+              list.push({
+                atMs: Date.parse(run.at),
+                succeeded: run.succeeded,
+                verdict: run.verdict,
+              });
+              by.set(run.executor, list);
+            }
+            return by;
+          },
+          (error: unknown) => {
+            log(
+              `loop: ${boardId} ${stageKey} stage history unread (${describe(error)}); placing on the board's own`,
+            );
+            return null;
+          },
+        );
+      seen.set(key, read);
+    }
+    return read;
+  }
 
   /** Read a board, settle what it held, queue its ready cards. Throws when the board is unread. */
   async function gather(boardId: string, nowMs: number): Promise<Gathered> {
@@ -413,9 +479,10 @@ export function createLoop(deps: LoopDeps): Loop {
       fairness === "round-robin"
         ? fairOrder(queues, (card) => Date.parse(card.createdAt))
         : boardOrder(queues);
+    const stages = new Map<string, Promise<Map<string, StageRun[]> | null>>();
     for (const { boardId, item: card } of order) {
       const g = byBoard.get(boardId) as Gathered;
-      await placeCard(g, card, { nowMs, nowIso, noShows, holds });
+      await placeCard(g, card, { nowMs, nowIso, noShows, holds, stages });
     }
     return gathered.map((g) => g.pass);
   }
@@ -428,6 +495,7 @@ export function createLoop(deps: LoopDeps): Loop {
       nowIso: string;
       noShows: Map<string, string[]>;
       holds: Map<string, number>;
+      stages: Map<string, Promise<Map<string, StageRun[]> | null>>;
     },
   ): Promise<void> {
     const { boardId } = g.pass;
@@ -447,6 +515,12 @@ export function createLoop(deps: LoopDeps): Loop {
     )
       return;
 
+    const stageRuns = await stageRunsOf(
+      boardId,
+      card.stageKey,
+      at.nowMs,
+      at.stages,
+    );
     const candidates: CandidateFacts[] = eligibility.agents.map((a) => {
       const entry =
         a.principalId === null
@@ -478,6 +552,14 @@ export function createLoop(deps: LoopDeps): Loop {
           ),
         },
         holds: at.holds.get(a.agentId) ?? 0,
+        ...(stageRuns === null
+          ? {}
+          : {
+              stageRuns:
+                a.principalId === null
+                  ? []
+                  : (stageRuns.get(a.principalId) ?? []),
+            }),
       };
     });
 
@@ -490,6 +572,7 @@ export function createLoop(deps: LoopDeps): Loop {
       candidates,
       ladder,
       tiers,
+      history,
     });
     if (
       decision.kind === "none" &&

@@ -23,6 +23,7 @@ import {
   type ReserveAnswer,
   type RosterEntry,
   type Superpipeline,
+  type Superwitness,
 } from "../src/sources/index.ts";
 import type { CandidateRecord, TierSettings } from "../src/placement/index.ts";
 import type { Fairness } from "../src/config.ts";
@@ -49,6 +50,7 @@ function world(
     tiers?: Partial<TierSettings>;
     fairness?: Fairness;
     suggestions?: SuggestionSettings;
+    superwitness?: Superwitness;
   } = {},
 ) {
   const t = tempStore();
@@ -208,6 +210,7 @@ function world(
     },
     fairness: options.fairness ?? "round-robin",
     ...(options.suggestions ? { suggestions: options.suggestions } : {}),
+    ...(options.superwitness ? { superwitness: options.superwitness } : {}),
     now: () => now,
     newId: () => `pld_${String(++ids).padStart(24, "0")}`,
     newSuggestionId: () => `sug_${String(++ids).padStart(24, "0")}`,
@@ -310,7 +313,7 @@ describe("one pass: placing a ready card", () => {
       boardId: BOARD,
       cardId: CARD,
       stageKey: "build",
-      policy: "idle-success-lru@2",
+      policy: "idle-stage-success-lru@3",
       chosenAgent: "agt_b",
       noDecisionReason: null,
       attemptsBefore: 0,
@@ -1247,5 +1250,122 @@ describe("roster suggestions", () => {
     w.advance(3600 * S + S);
     await w.loop.passAll();
     expect(w.store.listSuggestions({})).toEqual([]);
+  });
+});
+
+describe("stage history from SuperWitness", () => {
+  /** A SuperWitness that answers these runs for every stage, or fails, and logs what it was asked. */
+  function witness(
+    runs:
+      | Array<{ executor: string; succeeded: boolean; verdict: number | null }>
+      | "fail",
+  ) {
+    const asked: string[] = [];
+    const sw: Superwitness = {
+      async stageRuns(q) {
+        asked.push(`${q.boardId} ${q.stageKey} ${q.since}`);
+        if (runs === "fail")
+          throw new SourceError("superwitness", 503, "store_unavailable");
+        return runs.map((r) => ({
+          ...r,
+          at: new Date(T0 - 3600 * S).toISOString(),
+        }));
+      },
+    };
+    return { sw, asked };
+  }
+  /** Five runs each: agt_a always failed and was judged fail, agt_b always passed. */
+  const RECORD = [
+    ...Array.from({ length: 5 }, () => ({
+      executor: "prn_agt_a",
+      succeeded: false,
+      verdict: 0,
+    })),
+    ...Array.from({ length: 5 }, () => ({
+      executor: "prn_agt_b",
+      succeeded: true,
+      verdict: 1,
+    })),
+  ];
+  /** Two idle agents: agt_a the least recently used, so the board's own order picks it. */
+  function twoAgents(w: ReturnType<typeof world>) {
+    w.addAgent("agt_a", {
+      roster: { lastDispatchedAt: new Date(T0 - 7200 * S).toISOString() },
+    });
+    w.addAgent("agt_b", {
+      roster: { lastDispatchedAt: new Date(T0 - 60 * S).toISOString() },
+    });
+  }
+
+  test("a candidate's record at the stage outranks the least recently used, and the record says what was read", async () => {
+    const { sw, asked } = witness(RECORD);
+    const w = world({ superwitness: sw });
+    w.addCard(CARD);
+    w.addCard("card_00000000000000c2");
+    twoAgents(w);
+    w.addAgent("agt_c", { roster: { busy: true } });
+    await w.loop.passBoard(BOARD);
+    // Read once for the board stage, however many cards are placed, back 30 days.
+    expect(asked).toEqual([
+      `${BOARD} build ${new Date(T0 - 30 * 24 * 3600 * S).toISOString()}`,
+    ]);
+    const first = w.store
+      .listDecisions({ limit: 10 })
+      .find((d) => d.cardId === CARD);
+    expect(first?.chosenAgent).toBe("agt_b");
+    expect(first?.policy).toBe("idle-stage-success-lru@3");
+    const records = first?.candidates as CandidateRecord[];
+    const of = (id: string) => records.find((r) => r.candidate.agentId === id);
+    expect(of("agt_b")?.stageHistory).toMatchObject({
+      runs: 5,
+      succeeded: 5,
+      verdicts: 5,
+      passes: 5,
+    });
+    expect(of("agt_a")?.stageHistory?.succeeded).toBe(0);
+    // Nobody's runs: an empty history, recorded, and neutral.
+    expect(of("agt_c")?.stageHistory).toMatchObject({
+      runs: 0,
+      stageRecord: 0.5,
+    });
+    expect(of("agt_b")?.score?.terms.stageRecord).toBeGreaterThan(
+      of("agt_a")?.score?.terms.stageRecord ?? 1,
+    );
+  });
+
+  test("SuperWitness failing never blocks a placement: the board's own order, nothing recorded of the stage, and a log line", async () => {
+    const { sw, asked } = witness("fail");
+    const w = world({ superwitness: sw });
+    w.addCard(CARD);
+    w.addCard("card_00000000000000c2");
+    twoAgents(w);
+    const pass = await w.loop.passBoard(BOARD);
+    expect(pass.reserved).toBe(2);
+    // One failed read a pass for the board stage, not one per card.
+    expect(asked.length).toBe(1);
+    const first = w.store
+      .listDecisions({ limit: 10 })
+      .find((d) => d.cardId === CARD);
+    expect(first?.chosenAgent).toBe("agt_a");
+    for (const r of (first?.candidates ?? []) as CandidateRecord[]) {
+      expect(r.stageHistory).toBeNull();
+      expect(r.score?.terms).not.toHaveProperty("stageRecord");
+    }
+    expect(
+      w.log.some((l) =>
+        l.includes("stage history unread (superwitness 503 store_unavailable)"),
+      ),
+    ).toBe(true);
+  });
+
+  test("without SuperWitness: the same choice, and SuperWitness is never asked", async () => {
+    const w = world();
+    w.addCard(CARD);
+    twoAgents(w);
+    await w.loop.passBoard(BOARD);
+    const [d] = w.store.listDecisions({ limit: 10 });
+    expect(d?.chosenAgent).toBe("agt_a");
+    for (const r of (d?.candidates ?? []) as CandidateRecord[])
+      expect(r.stageHistory).toBeNull();
   });
 });
