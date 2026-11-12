@@ -280,7 +280,9 @@ describe("sources: what each product says", () => {
     expect(
       stationCapsOf({
         stationId: "stn_1",
-        isolation: { level: "sandbox", proof: "installed" },
+        principalId: "prn_1",
+        harness: "salaam",
+        isolation: { level: "sandbox", runtime: "runsc", proof: "installed" },
         model: { id: "gpt-5", proof: "probed" },
         tools: [
           { id: "cli:stk", proof: "probed" },
@@ -297,7 +299,9 @@ describe("sources: what each product says", () => {
       }),
     ).toEqual({
       stationId: "stn_1",
-      isolation: { level: "sandbox", proof: "installed" },
+      principalId: "prn_1",
+      harness: "salaam",
+      isolation: { level: "sandbox", proof: "installed", runtime: "runsc" },
       model: { id: "gpt-5", proof: "probed" },
       tools: [
         { id: "cli:stk", proof: "probed" },
@@ -310,6 +314,8 @@ describe("sources: what each product says", () => {
       stationCapsOf({ stationId: "s", isolation: null, model: null }),
     ).toEqual({
       stationId: "s",
+      principalId: null,
+      harness: null,
       isolation: null,
       model: null,
       tools: [],

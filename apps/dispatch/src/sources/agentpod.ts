@@ -65,8 +65,16 @@ export function stationCapsOf(raw: unknown): StationCaps | null {
     });
   return {
     stationId,
+    principalId: str(field(raw, "principalId")),
+    harness: str(field(raw, "harness")),
     isolation:
-      level === null ? null : { level, proof: proofOf(field(iso, "proof")) },
+      level === null
+        ? null
+        : {
+            level,
+            proof: proofOf(field(iso, "proof")),
+            runtime: str(field(iso, "runtime")),
+          },
     model:
       modelId === null
         ? null
