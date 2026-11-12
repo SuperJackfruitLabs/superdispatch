@@ -83,6 +83,14 @@ An import goes down that list, never up, and placement does no I/O. A test holds
 
 `bun run check` runs what CI runs: format, typecheck, lint and tests.
 
+## Releases
+
+A `vX.Y.Z` tag on main runs the suite's shared release workflow (`.github/workflows/release.yml`,
+settings in `.github/release-config.json`, on the GitHub mirror only). It checks that forge CI
+passed for the tag's commit, or runs `bun run check` at the tag when it cannot read that, and
+publishes the release notes on GitHub with the tag's section of [`CHANGELOG.md`](CHANGELOG.md).
+There is no production deploy yet. Only the operator pushes tags.
+
 ## Licence
 
 [Apache-2.0](LICENSE)
