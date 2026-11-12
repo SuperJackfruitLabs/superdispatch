@@ -48,6 +48,13 @@ const superwitness =
           audience: config.superwitnessAudience,
         }),
       });
+// Learned routing: off unless the operator says shadow or on; on places only past the gate.
+const learned = {
+  mode: config.learned,
+  minRows: config.learnedMinRows,
+  minShadow: config.learnedMinShadow,
+  marginPct: config.learnedMarginPct,
+};
 const loop = createLoop({
   store,
   superpipeline,
@@ -77,6 +84,7 @@ const loop = createLoop({
     windowMs: config.suggestWindowHours * 3600 * 1000,
     stallAfterMs: config.stallMinutes * 60 * 1000,
   },
+  learned,
   now: Date.now,
   newId: () => `pld_${randomBytes(12).toString("hex")}`,
 });
@@ -84,10 +92,10 @@ const runner = startRunner(loop, { intervalMs: config.sweepSeconds * 1000 });
 
 const server = Bun.serve({
   port: config.port,
-  fetch: createHandler({ config, store, onBoard: runner.nudge }),
+  fetch: createHandler({ config, store, onBoard: runner.nudge, learned }),
 });
 console.log(
-  `${SERVICE}: listening on :${server.port}, sweeping every ${config.sweepSeconds}s`,
+  `${SERVICE}: listening on :${server.port}, sweeping every ${config.sweepSeconds}s, learned routing ${config.learned}`,
 );
 
 async function shutdown() {
