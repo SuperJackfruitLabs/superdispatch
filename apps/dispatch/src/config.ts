@@ -40,10 +40,27 @@ export const DEFAULT_PORT = 8796;
 export const DEFAULT_SWEEP_SECONDS = 30;
 
 /**
- * How long SuperPipeline holds a card for the chosen agent when
+ * How long SuperPipeline holds a card for the winner (the first tier) when
  * `SUPERDISPATCH_RESERVATION_SECONDS` is unset. SuperPipeline takes 10 to 300.
  */
 export const DEFAULT_RESERVATION_SECONDS = 60;
+
+/** How long each runner-up hold lasts when `SUPERDISPATCH_RUNNER_UP_SECONDS` is unset. */
+export const DEFAULT_RUNNER_UP_SECONDS = 30;
+
+/**
+ * The most holds a card's ladder makes (the winner's, then runner-ups) before it is open to any
+ * match, when `SUPERDISPATCH_TOP_K` is unset. 1 is winner, then any match.
+ */
+export const DEFAULT_TOP_K = 3;
+
+/**
+ * How a sweep orders cards across boards: `round-robin` (one card from each board a round, the
+ * longest-waiting first) or `board-order` (every card of one board before the next).
+ */
+export const FAIRNESS = ["round-robin", "board-order"] as const;
+export type Fairness = (typeof FAIRNESS)[number];
+export const DEFAULT_FAIRNESS: Fairness = "round-robin";
 
 export interface Config {
   port: number;
@@ -63,8 +80,14 @@ export interface Config {
   relayDeliverySecret: string;
   /** Seconds between two sweeps of every opted-in board. */
   sweepSeconds: number;
-  /** Seconds SuperPipeline holds a card for the chosen agent. */
+  /** Seconds SuperPipeline holds a card for the winner: the first tier. */
   reservationSeconds: number;
+  /** Seconds each runner-up hold lasts. */
+  runnerUpSeconds: number;
+  /** The most holds a card's ladder makes before it is open to any match. */
+  topK: number;
+  /** How a sweep orders cards across boards. */
+  fairness: Fairness;
   /** The directory the store keeps its database in; absolute. */
   dataDir: string;
   /** The SHA-256 of the operator's bearer token, 64 lowercase hex digits. */
@@ -166,6 +189,33 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     problems,
   );
 
+  const runnerUpSeconds = wholeNumber(
+    env,
+    "SUPERDISPATCH_RUNNER_UP_SECONDS",
+    DEFAULT_RUNNER_UP_SECONDS,
+    10,
+    300,
+    problems,
+  );
+  const topK = wholeNumber(
+    env,
+    "SUPERDISPATCH_TOP_K",
+    DEFAULT_TOP_K,
+    1,
+    10,
+    problems,
+  );
+  let fairness = DEFAULT_FAIRNESS;
+  const rawFairness = env.SUPERDISPATCH_FAIRNESS?.trim();
+  if (rawFairness) {
+    if ((FAIRNESS as readonly string[]).includes(rawFairness))
+      fairness = rawFairness as Fairness;
+    else
+      problems.push(
+        `SUPERDISPATCH_FAIRNESS is not one of ${FAIRNESS.join(", ")}`,
+      );
+  }
+
   if (problems.length > 0) throw new ConfigError(problems);
   return {
     port,
@@ -180,6 +230,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     relayDeliverySecret,
     sweepSeconds,
     reservationSeconds,
+    runnerUpSeconds,
+    topK,
+    fairness,
     dataDir,
     operatorTokenSha256,
   };

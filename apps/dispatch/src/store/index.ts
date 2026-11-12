@@ -60,6 +60,15 @@ export const MIGRATIONS: readonly string[] = [
      WHERE outcome IS NULL AND reserved_until IS NOT NULL;
    CREATE INDEX decisions_chosen ON decisions (chosen_agent, outcome, outcome_at);
    CREATE INDEX decisions_created ON decisions (created_at);`,
+  // Tiers: the tier a decision was made in (`winner`, `runner-up` or `any-match`) and its step on
+  // the card's ladder of holds, 1 first. A decision in the any-match tier holds nothing but stays
+  // open until the card is claimed or moved, so it is settled like a hold. Older rows have neither.
+  `ALTER TABLE decisions ADD COLUMN tier TEXT;
+   ALTER TABLE decisions ADD COLUMN tier_step INTEGER;
+   DROP INDEX decisions_open;
+   CREATE INDEX decisions_open ON decisions (board_id)
+     WHERE outcome IS NULL AND (reserved_until IS NOT NULL OR tier = 'any-match');
+   CREATE INDEX decisions_ladder ON decisions (board_id, card_id, stage_key, attempts_before);`,
 ];
 
 /** What became of a card a decision was about. */
@@ -96,6 +105,9 @@ export interface NewDecision {
   noDecisionReason: string | null;
   candidates: unknown;
   attemptsBefore: number;
+  /** The tier it was made in, and its step on the card's ladder; null on rows older than tiers. */
+  tier: string | null;
+  tierStep: number | null;
   createdAt: string;
 }
 
@@ -143,8 +155,21 @@ export interface Store {
   ): void;
   /** Settle a decision's outcome, once: a settled one is left as it is. */
   settle(id: string, outcome: Outcome, by: string | null, at: string): boolean;
-  /** The decisions on a board whose hold was granted and whose outcome is not known yet. */
+  /**
+   * The decisions on a board whose outcome is not known yet and that wait on one: a granted hold,
+   * or a card opened to any match.
+   */
   openDecisions(boardId: string): DecisionRow[];
+  /**
+   * The ladder decisions on a card at a stage and attempt count, newest first: the ones whose hold
+   * lapsed (`expired`), that were `superseded`, or that opened the card to any match.
+   */
+  ladderDecisions(
+    boardId: string,
+    cardId: string,
+    stageKey: string,
+    attemptsBefore: number,
+  ): DecisionRow[];
   /** The latest decision on a card, or null. */
   latestDecision(boardId: string, cardId: string): DecisionRow | null;
   /** Newest first, at most `limit`, optionally for one board and one card, before a time. */
@@ -212,6 +237,8 @@ interface DecisionSql {
   no_decision_reason: string | null;
   candidates: string;
   attempts_before: number | null;
+  tier: string | null;
+  tier_step: number | null;
   reserved_until: string | null;
   reservation_refused: string | null;
   outcome: string | null;
@@ -237,6 +264,8 @@ const decisionOf = (r: DecisionSql): DecisionRow => ({
   noDecisionReason: r.no_decision_reason,
   candidates: JSON.parse(r.candidates) as unknown,
   attemptsBefore: r.attempts_before ?? 0,
+  tier: r.tier,
+  tierStep: r.tier_step,
   createdAt: r.created_at,
   reservedUntil: r.reserved_until,
   reservationRefused: r.reservation_refused,
@@ -288,8 +317,8 @@ function storeOver(db: Database): Store {
     recordDecision(d) {
       db.query(
         `INSERT INTO decisions (id, board_id, card_id, stage_key, policy, chosen_agent,
-           no_decision_reason, candidates, attempts_before, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           no_decision_reason, candidates, attempts_before, tier, tier_step, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         d.id,
         d.boardId,
@@ -300,6 +329,8 @@ function storeOver(db: Database): Store {
         d.noDecisionReason,
         JSON.stringify(d.candidates),
         d.attemptsBefore,
+        d.tier,
+        d.tierStep,
         d.createdAt,
       );
     },
@@ -327,10 +358,21 @@ function storeOver(db: Database): Store {
       db
         .query<DecisionSql, [string]>(
           `SELECT * FROM decisions
-           WHERE board_id = ? AND outcome IS NULL AND reserved_until IS NOT NULL
+           WHERE board_id = ? AND outcome IS NULL
+             AND (reserved_until IS NOT NULL OR tier = 'any-match')
            ORDER BY created_at, id`,
         )
         .all(boardId)
+        .map(decisionOf),
+    ladderDecisions: (boardId, cardId, stageKey, attemptsBefore) =>
+      db
+        .query<DecisionSql, [string, string, string, number]>(
+          `SELECT * FROM decisions
+           WHERE board_id = ? AND card_id = ? AND stage_key = ? AND attempts_before = ?
+             AND (outcome IN ('expired', 'superseded') OR tier = 'any-match')
+           ORDER BY created_at DESC, rowid DESC`,
+        )
+        .all(boardId, cardId, stageKey, attemptsBefore)
         .map(decisionOf),
     latestDecision(boardId, cardId) {
       const row = db

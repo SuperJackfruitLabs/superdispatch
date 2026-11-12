@@ -42,6 +42,9 @@ describe("loadConfig", () => {
       relayDeliverySecret: "relay-secret-for-tests",
       sweepSeconds: 30,
       reservationSeconds: 60,
+      runnerUpSeconds: 30,
+      topK: 3,
+      fairness: "round-robin",
       dataDir: "/data",
       operatorTokenSha256: OPERATOR_TOKEN_SHA256,
     });
@@ -142,6 +145,40 @@ describe("loadConfig", () => {
     ]);
   });
 
+  test("takes the tiers and the fairness rule, within their ranges, and names the setting it refuses", () => {
+    const c = loadConfig({
+      ...FULL,
+      SUPERDISPATCH_RUNNER_UP_SECONDS: "20",
+      SUPERDISPATCH_TOP_K: "1",
+      SUPERDISPATCH_FAIRNESS: "board-order",
+    });
+    expect([c.runnerUpSeconds, c.topK, c.fairness]).toEqual([
+      20,
+      1,
+      "board-order",
+    ]);
+    expect(
+      problems({
+        ...FULL,
+        SUPERDISPATCH_RUNNER_UP_SECONDS: "9",
+        SUPERDISPATCH_TOP_K: "0",
+        SUPERDISPATCH_FAIRNESS: "secret-fairness-value",
+      }),
+    ).toEqual([
+      "SUPERDISPATCH_RUNNER_UP_SECONDS is not a whole number from 10 to 300",
+      "SUPERDISPATCH_TOP_K is not a whole number from 1 to 10",
+      "SUPERDISPATCH_FAIRNESS is not one of round-robin, board-order",
+    ]);
+    expect(problems({ ...FULL, SUPERDISPATCH_TOP_K: "11" })).toEqual([
+      "SUPERDISPATCH_TOP_K is not a whole number from 1 to 10",
+    ]);
+    expect(
+      problems({ ...FULL, SUPERDISPATCH_RUNNER_UP_SECONDS: "301" }),
+    ).toEqual([
+      "SUPERDISPATCH_RUNNER_UP_SECONDS is not a whole number from 10 to 300",
+    ]);
+  });
+
   test("takes a port, and refuses one that is not a port", () => {
     expect(loadConfig({ ...FULL, PORT: "9123" }).port).toBe(9123);
     for (const bad of ["70000", "80a", "0", "-1", "8.5"]) {
@@ -158,6 +195,8 @@ describe("loadConfig", () => {
       ORG_PLANE_SERVICE_CREDENTIAL: "svc_short:leaky-credential-secret",
       SUPERDISPATCH_OPERATOR_TOKEN_SHA256: "not-a-hash-value",
       SUPERDISPATCH_DATA_DIR: "relative/secret-path",
+      SUPERDISPATCH_FAIRNESS: "leaky-fairness",
+      SUPERDISPATCH_TOP_K: "77",
     };
     let message = "";
     try {
