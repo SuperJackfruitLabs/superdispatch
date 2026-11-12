@@ -355,7 +355,8 @@ An import goes down that list, never up, and placement does no I/O. A test holds
 
 ## Checks
 
-`bun run check` runs what CI runs: format, typecheck, lint and tests.
+`bun run check` runs what CI runs: format, typecheck, lint and tests. The lint ratchet and the
+architecture test are described in [docs/code-quality.md](docs/code-quality.md).
 
 ## Releases
 

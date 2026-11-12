@@ -146,6 +146,18 @@ describe("the store", () => {
     expect(message).toContain("SUPERDISPATCH_DATA_DIR");
     expect(message).not.toContain(parent);
   });
+
+  test("an error opening it keeps the error's code, and only that", () => {
+    const parent = mkdtempSync(join(tmpdir(), "superdispatch-test-"));
+    cleanups.push(() => rmSync(parent, { recursive: true, force: true }));
+    const file = join(parent, "a-file");
+    writeFileSync(file, "");
+    expect(() => openStore(join(file, "data"))).toThrow(
+      new StoreError(
+        "the store cannot be opened in SUPERDISPATCH_DATA_DIR (ENOTDIR)",
+      ),
+    );
+  });
 });
 
 const T = (minute: number) =>

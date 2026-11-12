@@ -187,3 +187,160 @@ describe("architecture", () => {
     ).toEqual([]);
   });
 });
+
+/** The most lines a source file under `src/` may have. */
+export const SIZE_LIMIT = 1000;
+/** Files over SIZE_LIMIT and the most lines each may have. Lower these; never raise them. */
+export const OVERSIZE: Record<string, number> = {};
+/** Files in the largest run-time import cycle under `src/`. Lower it; never raise it. */
+export const LARGEST_CYCLE = 0;
+
+/**
+ * The run-time import graph of a set of files (path under src/ to source): each file to the files
+ * it loads. `import type` and `export type` are erased and load nothing; every other import,
+ * re-export, side-effect import and dynamic import does.
+ */
+export function runtimeGraph(
+  files: Record<string, string>,
+): Map<string, string[]> {
+  const graph = new Map<string, string[]>();
+  const statics =
+    /^[ \t]*(?:import|export)\b(\s+type\b)?[^;"']*?\bfrom\s*["'](\.{1,2}\/[^"']+)["']/gm;
+  const bare = /^[ \t]*import\s*["'](\.{1,2}\/[^"']+)["']/gm;
+  const dynamic = /\bimport\s*\(\s*["'](\.{1,2}\/[^"']+)["']\s*\)/g;
+  for (const [path, source] of Object.entries(files)) {
+    const targets = new Set<string>();
+    const add = (spec: string | undefined) => {
+      if (spec === undefined) return;
+      const to = posix.normalize(posix.join(posix.dirname(path), spec));
+      if (!to.startsWith("..")) targets.add(to);
+    };
+    for (const m of source.matchAll(statics)) if (!m[1]) add(m[2]);
+    for (const m of source.matchAll(bare)) add(m[1]);
+    for (const m of source.matchAll(dynamic)) add(m[1]);
+    graph.set(path, [...targets].toSorted());
+  }
+  return graph;
+}
+
+/** Strongly connected components with more than one file (Tarjan), each sorted. */
+export function cycles(graph: Map<string, string[]>): string[][] {
+  let next = 0;
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const found: string[][] = [];
+  const visit = (v: string): void => {
+    index.set(v, next);
+    low.set(v, next++);
+    stack.push(v);
+    onStack.add(v);
+    for (const w of graph.get(v) ?? []) {
+      if (!graph.has(w)) continue;
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v) ?? 0, low.get(w) ?? 0));
+      } else if (onStack.has(w))
+        low.set(v, Math.min(low.get(v) ?? 0, index.get(w) ?? 0));
+    }
+    if (low.get(v) !== index.get(v)) return;
+    const component: string[] = [];
+    let w: string | undefined;
+    do {
+      w = stack.pop();
+      if (w === undefined) break;
+      onStack.delete(w);
+      component.push(w);
+    } while (w !== v);
+    if (component.length > 1) found.push(component.toSorted());
+  };
+  for (const v of graph.keys()) if (!index.has(v)) visit(v);
+  return found;
+}
+
+/** Lines in a source, not counting a final newline. */
+export function lineCount(source: string): number {
+  return source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
+}
+
+/**
+ * What the size ratchet refuses, as one line each: a file over its limit, and an OVERSIZE entry
+ * that is stale (its file shrank below the entry, or is gone).
+ */
+export function sizeProblems(
+  sizes: Map<string, number>,
+  oversize: Record<string, number>,
+  limit = SIZE_LIMIT,
+): string[] {
+  const out: string[] = [];
+  for (const [file, n] of sizes) {
+    const allowed = oversize[file] ?? limit;
+    if (n > allowed)
+      out.push(`${file} has ${n} lines; the limit is ${allowed}`);
+  }
+  for (const [file, allowed] of Object.entries(oversize)) {
+    const n = sizes.get(file) ?? 0;
+    if (n < allowed)
+      out.push(
+        `${file} has ${n} lines, under its OVERSIZE entry of ${allowed}: lower or remove the entry`,
+      );
+  }
+  return out;
+}
+
+describe("shape", () => {
+  test("no run-time import cycle grows past LARGEST_CYCLE", () => {
+    const found = cycles(runtimeGraph(sources(SRC)));
+    const largest = Math.max(0, ...found.map((c) => c.length));
+    expect(found.filter((c) => c.length > LARGEST_CYCLE)).toEqual([]);
+    // A stale record would let the next cycle in unnoticed.
+    expect(largest).toBe(LARGEST_CYCLE);
+  });
+
+  test("no source file grows past the size limit, and OVERSIZE is not stale", () => {
+    const sizes = new Map(
+      Object.entries(sources(SRC)).map(([f, s]) => [f, lineCount(s)] as const),
+    );
+    expect(sizeProblems(sizes, OVERSIZE)).toEqual([]);
+  });
+
+  // The rules themselves, against inputs they must refuse.
+  test("the cycle finder sees a run-time cycle, and not one made of type imports", () => {
+    const graph = runtimeGraph({
+      "a/index.ts": 'import { b } from "../b/index.ts";',
+      "b/index.ts": 'export * from "./c.ts";',
+      "b/c.ts": 'import {\n  a,\n  x,\n} from "../a/index.ts";',
+      "d.ts": 'import { a } from "./a/index.ts";',
+      "e.ts": 'import type { F } from "./f.ts";',
+      "f.ts": 'import type { E } from "./e.ts";',
+      "g.ts": 'import "./h.ts";',
+      "h.ts": 'const g = await import("./g.ts");',
+    });
+    expect(cycles(graph)).toEqual([
+      ["a/index.ts", "b/c.ts", "b/index.ts"],
+      ["g.ts", "h.ts"],
+    ]);
+  });
+
+  test("the size ratchet refuses a file over its limit and a stale entry", () => {
+    expect(
+      sizeProblems(
+        new Map([
+          ["big.ts", 11],
+          ["held.ts", 12],
+          ["shrunk.ts", 13],
+          ["small.ts", 10],
+        ]),
+        { "held.ts": 12, "shrunk.ts": 14, "gone.ts": 20 },
+        10,
+      ),
+    ).toEqual([
+      "big.ts has 11 lines; the limit is 10",
+      "shrunk.ts has 13 lines, under its OVERSIZE entry of 14: lower or remove the entry",
+      "gone.ts has 0 lines, under its OVERSIZE entry of 20: lower or remove the entry",
+    ]);
+    expect(lineCount("a\nb\n")).toBe(2);
+    expect(lineCount("a\nb")).toBe(2);
+  });
+});

@@ -19,7 +19,8 @@ records why. The charter decision that sets its scope is
 - **Placement is pure.** `src/placement` is functions over plain inputs: no I/O, no clock, no
   randomness. The time it needs comes in its input.
 - **The layers hold.** `apps/dispatch/test/architecture.test.ts`: config < store < sources <
-  placement < loop < routes < main. An import stays in its layer or points down.
+  placement < loop < routes < main. An import stays in its layer or points down. The same test
+  allows no run-time import cycle and no source file over 1,000 lines.
 - **A setting's value never reaches a log, an error or a response.**
 - **Every guard has a test that fails when the guard is reverted.**
 - **Events are treaty's.** Read relay deliveries with `@superjackfruitlabs/treaty-cloudevents`;
@@ -36,6 +37,10 @@ records why. The charter decision that sets its scope is
 ## Checks
 
 `bun run check` runs what CI runs: format, typecheck, lint, tests. Run it before pushing.
+
+Lint is type-aware oxlint with a ratchet: per-rule counts in `scripts/lint-baseline.json` may
+fall but never rise. After a cleanup, `bun run lint --update` locks the lower count in. The
+ratchets, and what each holds, are in `docs/code-quality.md`.
 
 ## Hosting
 
