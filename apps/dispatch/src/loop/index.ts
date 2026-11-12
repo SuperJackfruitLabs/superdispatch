@@ -50,8 +50,9 @@
  * slice: it needs a decision event in treaty's catalogue first. Until then the record is read on
  * the operator API (`GET /v1/decisions`).
  *
- * **Roster suggestions** (`refreshSuggestions`): after a sweep, when due, the decisions of the
- * window on the enabled boards go through placement's `suggest`, and the store's suggestions are
+ * **Roster suggestions and supply proposals** (`refreshSuggestions`, `./suggestions.ts`): after a
+ * sweep, when due, the decisions of the window on the enabled boards go through placement's
+ * `suggest` and `proposeSupply` (with the registry as last read), and the store's suggestions are
  * brought in line. Advice only (charter decision 8): it reads the store and writes the store, and
  * its deps hold no source, so it cannot reach another product. A person makes any roster change.
  * Publishing suggestions to chat is a later slice; until then they are read on the operator API
@@ -78,20 +79,16 @@ import {
   type StationCaps,
   type Superpipeline,
 } from "../sources/index.ts";
-import { randomBytes } from "node:crypto";
 import {
   DEFAULT_CANDIDATE_SET,
-  DEFAULT_STALL_AFTER_MS,
   DEFAULT_HISTORY,
   DEFAULT_TIERS,
   NO_SHOW_WINDOW_MS,
   POLICY,
   boardOrder,
-  candidateRecords,
   fairOrder,
   inCandidateSet,
   place,
-  suggest,
   type Capability,
   type CandidateFacts,
   type CandidateSet,
@@ -102,10 +99,17 @@ import {
   type TierSettings,
 } from "../placement/index.ts";
 import {
+  DEFAULT_SUGGESTIONS,
+  refreshSuggestions,
+  type SuggestionSettings,
+} from "./suggestions.ts";
+import {
   createPolicyGate,
   type PolicyGate,
   type PolicyPass,
 } from "./policy.ts";
+
+export * from "./suggestions.ts";
 
 /** How much of a stage's history is read when the loop is given none: 30 days. */
 export const DEFAULT_HISTORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -115,91 +119,6 @@ export const REDECIDE_AFTER_MS = 5 * 60 * 1000;
 
 /** The most cards one pass looks at on one board: the rest wait for the next pass. */
 export const MAX_CARDS_PER_PASS = 20;
-
-/** The most decisions one computation of the roster suggestions reads, newest first. */
-export const MAX_SUGGESTION_DECISIONS = 5000;
-
-/** When and over what the roster suggestions are computed. */
-export interface SuggestionSettings {
-  /** The least time between two computations; 0 computes after every sweep. */
-  everyMs: number;
-  /** How far back the decisions they read go. */
-  windowMs: number;
-  /** How long a card waits with nobody eligible before its lane is flagged. */
-  stallAfterMs: number;
-}
-
-export const DEFAULT_SUGGESTIONS: SuggestionSettings = {
-  everyMs: 0,
-  windowMs: 24 * 3600 * 1000,
-  stallAfterMs: DEFAULT_STALL_AFTER_MS,
-};
-
-/** A new suggestion id: `sug_` and 24 hex digits. */
-export const newSuggestionId = () => `sug_${randomBytes(12).toString("hex")}`;
-
-/**
- * Compute the roster suggestions from the store's decisions and bring the store's suggestions in
- * line. Its deps are the store alone: it reads no product and writes none, so it can propose a
- * roster change and never make one.
- */
-export function refreshSuggestions(deps: {
-  store: Pick<Store, "listBoards" | "decisionsSince" | "syncSuggestions">;
-  nowMs: number;
-  settings?: SuggestionSettings;
-  newId?: () => string;
-}): SuggestionSync {
-  const settings = deps.settings ?? DEFAULT_SUGGESTIONS;
-  const enabled = new Set(
-    deps.store
-      .listBoards()
-      .filter((b) => b.enabled)
-      .map((b) => b.boardId),
-  );
-  const rows = deps.store
-    .decisionsSince(
-      new Date(deps.nowMs - settings.windowMs).toISOString(),
-      MAX_SUGGESTION_DECISIONS,
-    )
-    .filter((d) => enabled.has(d.boardId));
-  const found = suggest({
-    decisions: rows.map((d) => ({
-      id: d.id,
-      boardId: d.boardId,
-      cardId: d.cardId,
-      stageKey: d.stageKey,
-      attemptsBefore: d.attemptsBefore,
-      requires: capabilityOf(d.requires),
-      noDecisionReason: d.noDecisionReason,
-      candidates: candidateRecords(d.candidates),
-      createdAtMs: Date.parse(d.createdAt),
-    })),
-    settings: { stallAfterMs: settings.stallAfterMs },
-  });
-  return deps.store.syncSuggestions(
-    found.map(
-      ({ kind, boardId, stageKey, evidence, evidenceCount, ...body }) => ({
-        kind,
-        boardId,
-        stageKey,
-        body,
-        evidence: [...evidence],
-        evidenceCount,
-      }),
-    ),
-    new Date(deps.nowMs).toISOString(),
-    deps.newId ?? newSuggestionId,
-  );
-}
-
-/** A recorded `requires`, or null when it is not one. */
-function capabilityOf(json: unknown): Capability | null {
-  if (typeof json !== "object" || json === null) return null;
-  const { all, any } = json as Record<string, unknown>;
-  const strings = (v: unknown) =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  return { all: strings(all), any: strings(any) };
-}
 
 export interface LoopDeps {
   store: Store;
@@ -450,6 +369,8 @@ export function createLoop(deps: LoopDeps): Loop {
   }
 
   const stationFilters = deps.stationFilters ?? "on";
+  /** The registry as last read, for the supply proposals; a copy, never the client. */
+  let lastStations: Map<string, StationCaps> | null = null;
 
   /**
    * AgentPod's capability registry, by station, when a queued card's stage states a placement and
@@ -464,6 +385,7 @@ export function createLoop(deps: LoopDeps): Loop {
       return null;
     try {
       const read = await agentpod.stationCapabilities();
+      if (read !== null) lastStations = read;
       if (read === null)
         log(
           "loop: AgentPod has no capability registry; stage placements unchecked",
@@ -802,6 +724,8 @@ export function createLoop(deps: LoopDeps): Loop {
       store,
       nowMs,
       settings: suggestions,
+      stations: lastStations,
+      ...(deps.minProof !== undefined ? { minProof: deps.minProof } : {}),
       ...(deps.newSuggestionId ? { newId: deps.newSuggestionId } : {}),
     });
     if (sync.opened + sync.resolved > 0)

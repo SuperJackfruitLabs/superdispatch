@@ -23,7 +23,16 @@ export interface StageNeeds {
 /** One station's row in AgentPod's registry, as far as station filtering reads it. */
 export interface StationCaps {
   readonly stationId: string;
-  readonly isolation: { readonly level: string; readonly proof: Proof } | null;
+  /** The agent occupying the station; null for an empty one, unset when the registry did not say. */
+  readonly principalId?: string | null;
+  /** The harness the station runs; unset when the registry did not say. */
+  readonly harness?: string | null;
+  readonly isolation: {
+    readonly level: string;
+    readonly proof: Proof;
+    /** The runtime (or provider) AgentPod provisioned the station's node on; null for a host. */
+    readonly runtime?: string | null;
+  } | null;
   readonly model: { readonly id: string; readonly proof: Proof } | null;
   readonly tools: readonly { readonly id: string; readonly proof: Proof }[];
   readonly credentials: readonly {

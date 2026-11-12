@@ -4,6 +4,12 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
 
 ## Unreleased
 
+- Supply proposals: advice for a person when a lane goes unplaced for want of supply, kept with
+  the roster suggestions and listed by kind (`GET /v1/suggestions?kind=`). `change-model` (an
+  agent turned away only for its model), `move-to-host` (another station in AgentPod's registry
+  has what the lane's stations lack), `add-station` (nobody has it) and `raise-capacity` (every
+  capable agent at its board's concurrency). Each names its evidence, its target, its estimated
+  effect and the verb a person would use. SuperDispatch changes no station and files no request.
 - Station filters: a stage's `placement` (isolation, models, tools, credentials) filters
   candidates on AgentPod's capability registry, rejecting with `isolation-too-weak`,
   `model-mismatch`, `tool-missing` or `credential-missing` and recording what the station lacks.

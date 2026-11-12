@@ -259,7 +259,8 @@ const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * Candidate records as a decision row keeps them (JSON), read back defensively: a record that is
- * not one is left out, and an unknown filter name or a malformed result drops the record.
+ * not one is left out, and an unknown filter name or a malformed result drops the record. A
+ * rejection's `missing` (what a station lacks) is kept, its non-strings left out.
  */
 export function candidateRecords(json: unknown): CandidateRecord[] {
   if (!Array.isArray(json)) return [];
@@ -273,7 +274,7 @@ export function candidateRecords(json: unknown): CandidateRecord[] {
     const filters: FilterResult[] = [];
     for (const f of r.filters as unknown[]) {
       if (typeof f !== "object" || f === null) return [];
-      const { filter, passed, reason } = f as Record<string, unknown>;
+      const { filter, passed, reason, missing } = f as Record<string, unknown>;
       if (typeof filter !== "string") return [];
       if (passed === true)
         filters.push({ filter: filter as FilterName, passed: true });
@@ -282,6 +283,14 @@ export function candidateRecords(json: unknown): CandidateRecord[] {
           filter: filter as FilterName,
           passed: false,
           reason: reason as RejectionReason,
+          // A station filter's rejection says what the station lacks; supply proposals read it.
+          ...(Array.isArray(missing)
+            ? {
+                missing: missing.filter(
+                  (m): m is string => typeof m === "string",
+                ),
+              }
+            : {}),
         });
       else return [];
     }

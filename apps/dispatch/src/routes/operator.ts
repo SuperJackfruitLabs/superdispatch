@@ -17,11 +17,13 @@
  *   board), those made before a time; `limit` 1 to 200, 50 when unset.
  * - `GET /v1/decisions/:id`: one decision.
  *
- * Roster suggestions (advice for a person: SuperDispatch never edits a roster, and nothing here
- * writes to another product):
+ * Roster suggestions and supply proposals (advice for a person: SuperDispatch never edits a roster
+ * or a station, and nothing here writes to another product):
  *
- * - `GET /v1/suggestions?board=&state=`: newest seen first, optionally one board; `state` is
- *   `open` (the default: not resolved, not dismissed), `dismissed`, `resolved` or `all`.
+ * - `GET /v1/suggestions?board=&kind=&state=`: newest seen first, optionally one board and one
+ *   kind (a roster kind, or a supply kind: `add-station`, `change-model`, `move-to-host`,
+ *   `raise-capacity`); `state` is `open` (the default: not resolved, not dismissed), `dismissed`,
+ *   `resolved` or `all`.
  * - `GET /v1/suggestions/:id`: one suggestion.
  * - `POST /v1/suggestions/:id/dismiss`: dismiss it. It stays dismissed while it is found again; if
  *   it resolves and comes back later, it opens anew.
@@ -35,7 +37,14 @@ import {
   type SuggestionRow,
   type SuggestionState,
 } from "../store/index.ts";
+import { SUGGESTION_KINDS, SUPPLY_KINDS } from "../placement/index.ts";
 import { BOARD_ID, CARD_ID, notAllowed, notFound } from "./body.ts";
+
+/** Every kind a suggestion may be: a roster suggestion's, then a supply proposal's. */
+const ALL_SUGGESTION_KINDS: readonly string[] = [
+  ...SUGGESTION_KINDS,
+  ...SUPPLY_KINDS,
+];
 
 export const BOARDS_PATH = "/v1/boards";
 export const DECISIONS_PATH = "/v1/decisions";
@@ -174,12 +183,16 @@ export function createOperatorHandler(deps: OperatorDeps) {
       if (request.method !== "GET") return notAllowed();
       const board = url.searchParams.get("board") ?? undefined;
       const state = url.searchParams.get("state") ?? "open";
+      const kind = url.searchParams.get("kind") ?? undefined;
       if (board !== undefined && !BOARD_ID.test(board))
         return bad("board is not a board id");
+      if (kind !== undefined && !ALL_SUGGESTION_KINDS.includes(kind))
+        return bad(`kind is not one of ${ALL_SUGGESTION_KINDS.join(", ")}`);
       if (!(SUGGESTION_STATES as readonly string[]).includes(state))
         return bad(`state is not one of ${SUGGESTION_STATES.join(", ")}`);
       const rows = deps.store.listSuggestions({
         ...(board !== undefined ? { boardId: board } : {}),
+        ...(kind !== undefined ? { kind } : {}),
         state: state as SuggestionState,
       });
       return Response.json({ suggestions: rows.map(suggestionView) });

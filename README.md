@@ -48,8 +48,8 @@ events, for that board) it:
    filter's result and the score that ranked it, the hold and, on a later pass, the outcome. A
    settled decision is a labelled example.
 
-After each sweep it also computes **roster suggestions** from its own decisions: advice for a
-person, never a change (see below).
+After each sweep it also computes **roster suggestions** and **supply proposals** from its own
+decisions: advice for a person, never a change (see below).
 
 Not yet: publishing each decision as an event through treaty's relay (it needs a decision event
 in treaty's catalogue first), and publishing roster suggestions to chat (read them on the operator API until then).
@@ -206,6 +206,45 @@ writes this service's own store and nothing else: no client of another product h
 write, a test calls every method of every client and checks each request, and another fails if
 the computation touches a client at all.
 
+### Supply proposals
+
+Placement can only choose among the agents and stations there are. When a lane goes unplaced for
+want of supply, the same computation proposes what a person could change. It reads the same
+decisions (each rejected candidate records which filter turned it away, and a station filter what
+the station lacked) and the capability registry as AgentPod last answered it. A lane gets
+proposals only while its latest decision chose nobody, and each kind needs at least two decisions
+in the window that bear it out. A **blocked** decision is one in which nobody was eligible:
+`none-eligible`, or `one-candidate` (a lane with one agent on the roster is left to pull, but its
+filters still ran).
+
+| Kind             | When                                                                                                                                                                                          | Target                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `change-model`   | in blocked decisions, an agent on the roster was turned away only by `model-mismatch`                                                                                                         | the agent, its station, the first model the stage asks for     |
+| `move-to-host`   | in blocked decisions, an agent on the roster was turned away only by station filters, and another station in the registry has all of what the lane's stations lacked (an empty station first) | that station, its occupant, runtime, harness, isolation, model |
+| `add-station`    | the same shortfall with no station in the registry that has it (or no registry read), or no agent on the roster has the capability and no agent in the workspace does                         | the isolation, models, tools, credentials or capability needed |
+| `raise-capacity` | in decisions that chose nobody, every agent on the roster with the capability was turned away for its load alone, at least one by `at-capacity`                                               | none: the board's agent concurrency in SuperPipeline           |
+
+When the registry says one of the lane's own stations has what it lacked by now, nothing is
+proposed: the next decision will say. A registry fact counts only at `SUPERDISPATCH_MIN_PROOF` or
+stronger. AgentPod's registry names no host, so `move-to-host` names the station and the runtime
+its node was provisioned on.
+
+A proposal is a row in the same suggestions table, with its own kind: `{ id, kind, boardId,
+stageKey, rationale, target, estimatedEffect: { cards, agents, summary }, howToApply, registry:
+"read" | "unread", evidence, evidenceCount, firstSeenAt, lastSeenAt, resolvedAt, dismissedAt }`.
+Roster suggestions and supply proposals are synced in one step, so neither resolves the other.
+`GET /v1/suggestions?kind=change-model` lists one kind.
+
+**It never changes a station.** `howToApply` names what a person would do in AgentPod (a
+runtime and station setup, staffing a station, the declared harness configuration) or in
+SuperPipeline (the board's concurrency). SuperDispatch calls none of them and files no request
+for one: AgentPod has no request queue a service may file into and a person approves, and every
+one of those verbs is a person's (a workspace admin's, or refused to any service). A test calls
+every method of every client and fails on any request to such a path, or on any write but the
+reservation. A hand-off would need a new AgentPod verb first: a supply-request queue that a named
+service may file into under an allowlist, that a workspace admin approves or declines in the
+console, and whose approval runs the existing verb as that person, with an audit row.
+
 ## The rulings it implements
 
 From the charter decision
@@ -229,8 +268,9 @@ From the charter decision
   reason (`not-on-roster`, `capability-missing`, `grant-denied`, `unhealthy`, `at-capacity`,
   `not-idle`, and this service's own `not-claimable`, `holding-another`, `recently-no-show`,
   `passed-over`), and the score that ranked the rest.
-- **Roster suggestions are advice only.** It may propose a roster change later; a person makes
-  it. It never edits a roster.
+- **Roster suggestions are advice only.** It may propose a roster change, or a supply move (a
+  model, a station, a board's concurrency); a person makes it. It never edits a roster or a
+  station.
 - **Nothing requires it.** SuperPipeline without SuperDispatch is the same board it is now, and
   AgentPod's roster works without it. When it is slow or absent, the cost is the reservation
   window, never the claim.
@@ -327,8 +367,8 @@ outcomeRate, verdictRate, stageRecord } | null }], reservation:
 `tier` is null on decisions made before tiers, and `requires` (the capability the stage asked
 for) on those made before roster suggestions. `capable` is set only for an agent off the roster.
 
-Suggestions: `GET /v1/suggestions?board=&state=` (`state` is `open`, the default, `dismissed`,
-`resolved` or `all`), `GET /v1/suggestions/:id`, and `POST /v1/suggestions/:id/dismiss`.
+Suggestions and supply proposals: `GET /v1/suggestions?board=&kind=&state=` (`kind` is any
+roster or supply kind; `state` is `open`, the default, `dismissed`, `resolved` or `all`), `GET /v1/suggestions/:id`, and `POST /v1/suggestions/:id/dismiss`.
 
 ## Nothing requires it
 
@@ -341,10 +381,10 @@ with it or without it.
 
 - `apps/dispatch/src/config.ts`: the settings.
 - `apps/dispatch/src/store/`: SQLite (WAL) and its append-only migrations: the `decisions`
-  table, the opted-in `boards`, and the roster `suggestions`.
+  table, the opted-in `boards`, and the `suggestions` (roster suggestions and supply proposals).
 - `apps/dispatch/src/sources/`: clients of SuperPipeline, AgentPod and Accounts.
-- `apps/dispatch/src/placement/`: filter, score and decide, and the roster suggestions
-  (`suggest.ts`), as pure functions over plain inputs.
+- `apps/dispatch/src/placement/`: filter, score and decide, the roster suggestions
+  (`suggest.ts`) and the supply proposals (`supply.ts`), as pure functions over plain inputs.
 - `apps/dispatch/src/loop/`: one pass over a board, and the sweep that runs it.
 - `apps/dispatch/src/routes/`: the HTTP surface: the health check, the relay's deliveries, the
   operator API.

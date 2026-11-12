@@ -9,8 +9,9 @@ import {
 } from "../src/sources/index.ts";
 
 /**
- * Charter decision 8: SuperDispatch may propose a roster change, and a person makes it. These
- * tests hold that no client of another product can edit a roster: each client's methods are the
+ * Charter decision 8: SuperDispatch may propose a roster change, and a person makes it; the same
+ * holds for a supply proposal (a station's model, where work runs, a new station, a board's
+ * concurrency). These tests hold that no client of another product can edit a roster or a station: each client's methods are the
  * known reads (and SuperPipeline's reservation), every one of them is called, and every request
  * it makes is looked at. A new method, or a write to a roster path, fails them.
  */
@@ -122,6 +123,34 @@ describe("no client can edit a roster", () => {
     ];
     expect(
       all.filter((r) => !r.startsWith("GET ") && ROSTER_PATH.test(r)),
+    ).toEqual([]);
+  });
+
+  test("no client can change a station either: no supply move is ever made, only proposed", async () => {
+    // Supply proposals (placement/supply.ts) name the AgentPod or SuperPipeline verb a person would
+    // use: a runtime, station setup, staffing, the declared harness configuration, a board's
+    // concurrency. No client may call any of them, nor file a request for one.
+    const SUPPLY_PATH =
+      /runtimes|setup|provision|\/agent$|fleet\/config|config\/declared|concurrency|supply|request/i;
+    const all = [
+      ...(
+        await everyRequest((fetch) =>
+          createAgentpod({ baseUrl: "https://hub.example", tokens, fetch }),
+        )
+      ).requests,
+      ...(
+        await everyRequest((fetch) =>
+          createSuperpipeline({
+            baseUrl: "https://pipeline.example",
+            tokens,
+            fetch,
+          }),
+        )
+      ).requests,
+    ];
+    expect(all.filter((r) => SUPPLY_PATH.test(r))).toEqual([]);
+    expect(
+      all.filter((r) => !r.startsWith("GET ") && !r.endsWith("/reservation")),
     ).toEqual([]);
   });
 

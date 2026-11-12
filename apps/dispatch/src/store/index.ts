@@ -2,7 +2,8 @@
  * The service's own store: one SQLite database (`bun:sqlite`, WAL) in the data directory. It
  * holds what SuperDispatch alone knows: its placement decisions, each with every candidate it
  * considered, what each filter said about it and the score that ranked the rest, the reservation
- * it asked for and what became of the card; and its roster suggestions, advice for a person. It holds nothing another product owns: cards stay in
+ * it asked for and what became of the card; and its suggestions (roster suggestions and supply
+ * proposals), advice for a person. It holds nothing another product owns: cards stay in
  * SuperPipeline, the roster in AgentPod.
  *
  * The lowest layer beside config: it knows tables, not boards and not placement's rules. Its
@@ -264,9 +265,10 @@ export interface Store {
     at: string,
     newId: () => string,
   ): SuggestionSync;
-  /** Newest seen first, optionally for one board, in one state (`open` when unset). */
+  /** Newest seen first, optionally for one board and of one kind, in one state (`open` when unset). */
   listSuggestions(query: {
     boardId?: string;
+    kind?: string;
     state?: SuggestionState;
   }): SuggestionRow[];
   getSuggestion(id: string): SuggestionRow | null;
@@ -663,12 +665,16 @@ function storeOver(db: Database): Store {
       })();
       return sync;
     },
-    listSuggestions({ boardId, state }) {
+    listSuggestions({ boardId, kind, state }) {
       const where = [SUGGESTION_WHERE[state ?? "open"]];
       const args: string[] = [];
       if (boardId !== undefined) {
         where.push("board_id = ?");
         args.push(boardId);
+      }
+      if (kind !== undefined) {
+        where.push("kind = ?");
+        args.push(kind);
       }
       return db
         .query<SuggestionSql, string[]>(
