@@ -97,6 +97,7 @@ function world(learned?: LearnedSettings) {
       };
     },
     clearReservation: async () => {},
+    setPlacementWindow: async () => {},
     agentLoad: async () => [],
   };
   const agentpod: Agentpod = {

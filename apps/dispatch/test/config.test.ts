@@ -48,6 +48,7 @@ describe("loadConfig", () => {
       sweepSeconds: 30,
       reservationSeconds: 60,
       runnerUpSeconds: 30,
+      placementWindowSeconds: 10,
       topK: 3,
       fairness: "round-robin",
       candidates: "roster",

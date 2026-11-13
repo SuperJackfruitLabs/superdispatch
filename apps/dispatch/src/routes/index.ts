@@ -29,6 +29,10 @@ export interface HandlerDeps {
   store: Store;
   /** Told of each board the relay accepted an event about, or the operator just opted in. */
   onBoard?: (boardId: string) => void;
+  /** Told of each card the relay said became ready. */
+  onCardReady?: (boardId: string, cardId: string) => void;
+  /** Told of each board the operator just opted in or out. */
+  onBoardChanged?: (boardId: string) => void;
   now?: () => number;
   log?: (line: string) => void;
   /** Test seam for the relay signature's clock. */
@@ -46,6 +50,7 @@ export function createHandler(deps: HandlerDeps) {
     store: deps.store,
     log,
     ...(deps.onBoard ? { onBoardEvent: deps.onBoard } : {}),
+    ...(deps.onCardReady ? { onCardReady: deps.onCardReady } : {}),
     ...(deps.nowMs ? { nowMs: deps.nowMs } : {}),
   });
   const operator = createOperatorHandler({
@@ -54,6 +59,7 @@ export function createHandler(deps: HandlerDeps) {
     now: deps.now ?? Date.now,
     log,
     ...(deps.onBoard ? { onBoardEnabled: deps.onBoard } : {}),
+    ...(deps.onBoardChanged ? { onBoardChanged: deps.onBoardChanged } : {}),
   });
 
   const learned = createLearnedHandler({

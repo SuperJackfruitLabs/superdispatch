@@ -503,6 +503,7 @@ function world(opts: {
       return { ok: true, reservedUntil: new Date(NOW + 60_000).toISOString() };
     },
     async clearReservation() {},
+    async setPlacementWindow() {},
     async agentLoad() {
       return [];
     },

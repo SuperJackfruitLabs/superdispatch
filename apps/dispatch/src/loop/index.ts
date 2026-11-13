@@ -41,6 +41,21 @@
  * only on agents that hold other cards, or only on agents whose work in hand keeps them busy, is
  * not recorded at all: it is looked at again next pass, so it is placed as soon as one frees up.
  *
+ * **The placement window** (`placementWindowSeconds`). SuperPipeline holds a card that just became
+ * ready on a board with a window back from pull for that long, so a hold made inside it reaches
+ * the chosen agent before an agent's poll takes the card. The loop sets the window on every board
+ * it places (once a process, retried after `REDECIDE_AFTER_MS` when refused) and 0 on every board
+ * opted out. Unset, the loop leaves every board's window alone.
+ *
+ * **One card at once** (`passCard`). SuperPipeline relays `card.ready` when a card becomes ready
+ * on a board with a window; the runner places that card alone, at once, with the board's roster
+ * from the cache: AgentPod's roster read probes each station and takes seconds, longer than a
+ * window can spare. The sweep keeps the cache fresh: it reads every enabled board's roster, in the
+ * background when the board has nothing to place, and the card path reads it itself only when the
+ * cached one is older than `rosterMaxAgeMs`. SuperPipeline's eligibility read is never cached, so
+ * a stale roster can at worst hold a card for an agent busy on another board, whose hold then
+ * lapses as any no-show's does.
+ *
  * Nothing requires this loop. It never claims and never hands a card to anybody; it asks
  * SuperPipeline for holds that lapse on their own, each at most 300 s. If SuperDispatch stops,
  * every hold it made lapses and every card is claimed by pull as before; if SuperPipeline has no
@@ -79,6 +94,7 @@ import {
   type StationCaps,
   type Superpipeline,
 } from "../sources/index.ts";
+import { describe } from "./describe.ts";
 import {
   DEFAULT_CANDIDATE_SET,
   DEFAULT_HISTORY,
@@ -116,6 +132,9 @@ export const DEFAULT_HISTORY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** How long a card whose last decision chose nobody, or was refused a hold, waits to be decided again. */
 export const REDECIDE_AFTER_MS = 5 * 60 * 1000;
+
+/** How old a cached roster may be for a card placed alone, when the loop is given no age. */
+export const DEFAULT_ROSTER_MAX_AGE_MS = 60_000;
 
 /** The most cards one pass looks at on one board: the rest wait for the next pass. */
 export const MAX_CARDS_PER_PASS = 20;
@@ -155,6 +174,13 @@ export interface LoopDeps {
   newSuggestionId?: () => string;
   /** Learned routing (`./learned.ts`); off when unset: no model is read. */
   learned?: LearnedSettings;
+  /**
+   * The placement window set on each enabled board, 0 to 30 seconds, and 0 set on each board opted
+   * out. Unset: no board's window is touched.
+   */
+  placementWindowSeconds?: number;
+  /** How old a cached roster may be for a card placed alone; `DEFAULT_ROSTER_MAX_AGE_MS` when unset. */
+  rosterMaxAgeMs?: number;
   now: () => number;
   /** A new decision id: `pld_` and hex. */
   newId: () => string;
@@ -181,6 +207,13 @@ export interface PassResult {
 export interface Loop {
   /** One pass over one board. Throws when the board cannot be read. */
   passBoard(boardId: string): Promise<BoardPass>;
+  /**
+   * Place one card of one board now, with the board's cached roster: SuperPipeline said it became
+   * ready. Nothing else on the board is placed. Throws when the board cannot be read.
+   */
+  passCard(boardId: string, cardId: string): Promise<BoardPass>;
+  /** Bring the board's placement window in line with whether it is enabled. Never throws. */
+  syncWindow(boardId: string): Promise<void>;
   /**
    * One pass over every enabled board; a board that fails is counted, not thrown. Then, when due,
    * the roster suggestions are computed.
@@ -406,8 +439,91 @@ export function createLoop(deps: LoopDeps): Loop {
     }
   }
 
-  /** Read a board, settle what it held, queue its ready cards. Throws when the board is unread. */
-  async function gather(boardId: string, nowMs: number): Promise<Gathered> {
+  const rosterMaxAgeMs = deps.rosterMaxAgeMs ?? DEFAULT_ROSTER_MAX_AGE_MS;
+  /** Each board's roster as last read, and a read under way. */
+  const rosters = new Map<string, { atMs: number; entries: RosterEntry[] }>();
+  const rosterReads = new Map<string, Promise<RosterEntry[]>>();
+
+  /** Read a board's roster from AgentPod and keep it; one read at a time per board. */
+  function readRoster(boardId: string): Promise<RosterEntry[]> {
+    let read = rosterReads.get(boardId);
+    if (read === undefined) {
+      read = agentpod.roster(boardId).then(
+        (entries) => {
+          rosters.set(boardId, { atMs: deps.now(), entries });
+          rosterReads.delete(boardId);
+          return entries;
+        },
+        (error: unknown) => {
+          rosterReads.delete(boardId);
+          throw error;
+        },
+      );
+      rosterReads.set(boardId, read);
+    }
+    return read;
+  }
+
+  /** The board's roster: the cached one when `maxAgeMs` allows it, else a fresh read. */
+  function rosterOf(
+    boardId: string,
+    nowMs: number,
+    maxAgeMs: number | null,
+  ): Promise<RosterEntry[]> {
+    const cached = rosters.get(boardId);
+    if (
+      maxAgeMs !== null &&
+      cached !== undefined &&
+      nowMs - cached.atMs <= maxAgeMs
+    )
+      return Promise.resolve(cached.entries);
+    return readRoster(boardId);
+  }
+
+  const windowSeconds = deps.placementWindowSeconds;
+  /** Each board's window as last set here, or when setting it was last refused. */
+  const windows = new Map<
+    string,
+    { seconds: number } | { refusedAtMs: number; seconds: number }
+  >();
+
+  /** Set the board's window to what it should be, unless it already is. Never throws. */
+  async function syncWindow(boardId: string): Promise<void> {
+    if (windowSeconds === undefined) return;
+    const want = store.getBoard(boardId)?.enabled === true ? windowSeconds : 0;
+    const known = windows.get(boardId);
+    const nowMs = deps.now();
+    if (known !== undefined && known.seconds === want) {
+      if (!("refusedAtMs" in known)) return;
+      if (nowMs - known.refusedAtMs < REDECIDE_AFTER_MS) return;
+    }
+    try {
+      await superpipeline.setPlacementWindow(boardId, want);
+      windows.set(boardId, { seconds: want });
+      log(`loop: ${boardId} placement window ${want}s`);
+    } catch (error) {
+      windows.set(boardId, { refusedAtMs: nowMs, seconds: want });
+      log(
+        `loop: ${boardId} placement window not set (${describe(error)}); cards are claimed by pull at once`,
+      );
+    }
+  }
+
+  /**
+   * Read a board, settle what it held, queue its ready cards (only `onlyCard`, when given). Throws
+   * when the board is unread. The roster is read fresh, unless `cachedRoster`; a board with
+   * nothing to place still refreshes its cached roster, in the background, when `refreshIdle`.
+   */
+  async function gather(
+    boardId: string,
+    nowMs: number,
+    how: {
+      onlyCard?: string;
+      cachedRoster?: boolean;
+      refreshIdle?: boolean;
+    } = {},
+  ): Promise<Gathered> {
+    await syncWindow(boardId);
     const pass: BoardPass = {
       boardId,
       settled: 0,
@@ -442,14 +558,26 @@ export function createLoop(deps: LoopDeps): Loop {
       }
     }
 
-    const ready = readyCards(board, nowIso).filter((card) =>
-      shouldDecide(store.latestDecision(boardId, card.id), card, nowMs),
+    const ready = readyCards(board, nowIso).filter(
+      (card) =>
+        (how.onlyCard === undefined || card.id === how.onlyCard) &&
+        shouldDecide(store.latestDecision(boardId, card.id), card, nowMs),
     );
-    if (ready.length === 0) return gathered;
+    if (ready.length === 0) {
+      if (how.refreshIdle === true)
+        readRoster(boardId).catch((error: unknown) =>
+          log(`loop: ${boardId} roster unread (${describe(error)})`),
+        );
+      return gathered;
+    }
 
     let roster: RosterEntry[];
     try {
-      roster = await agentpod.roster(boardId);
+      roster = await rosterOf(
+        boardId,
+        nowMs,
+        how.cachedRoster === true ? rosterMaxAgeMs : null,
+      );
     } catch (error) {
       log(
         `loop: ${boardId} roster unread (${describe(error)}); nothing placed`,
@@ -476,13 +604,14 @@ export function createLoop(deps: LoopDeps): Loop {
   async function passBoards(
     boardIds: readonly string[],
     failed: (boardId: string, error: unknown) => void,
+    how: Parameters<typeof gather>[2] = {},
   ): Promise<BoardPass[]> {
     const nowMs = deps.now();
     const nowIso = new Date(nowMs).toISOString();
     const gathered: Gathered[] = [];
     for (const boardId of boardIds) {
       try {
-        gathered.push(await gather(boardId, nowMs));
+        gathered.push(await gather(boardId, nowMs, how));
       } catch (error) {
         failed(boardId, error);
       }
@@ -753,14 +882,29 @@ export function createLoop(deps: LoopDeps): Loop {
 
   return {
     suggest: computeSuggestions,
+    syncWindow,
     async passBoard(boardId) {
       const [pass] = await passBoards([boardId], (_id, error) => {
         throw error;
       });
       return pass as BoardPass;
     },
+    async passCard(boardId, cardId) {
+      const [pass] = await passBoards(
+        [boardId],
+        (_id, error) => {
+          throw error;
+        },
+        { onlyCard: cardId, cachedRoster: true },
+      );
+      if (pass === undefined) throw new Error("no pass for the board");
+      return pass;
+    },
     async passAll() {
-      const boards = store.listBoards().filter((b) => b.enabled);
+      const all = store.listBoards();
+      // Opted-out boards first: their windows go back to none.
+      for (const b of all) if (!b.enabled) await syncWindow(b.boardId);
+      const boards = all.filter((b) => b.enabled);
       let failedBoards = 0;
       await passBoards(
         boards.map((b) => b.boardId),
@@ -768,6 +912,7 @@ export function createLoop(deps: LoopDeps): Loop {
           failedBoards++;
           log(`loop: ${boardId} unread (${describe(error)})`);
         },
+        { refreshIdle: true },
       );
       if (
         suggestedAtMs === null ||
@@ -782,103 +927,6 @@ export function createLoop(deps: LoopDeps): Loop {
         }
       }
       return { boards: boards.length, failedBoards };
-    },
-  };
-}
-
-/** An error as a log may show it: a source's product, status and code, never a request. */
-function describe(error: unknown): string {
-  return error instanceof SourceError
-    ? `${error.product} ${error.status} ${error.code}`
-    : error instanceof Error
-      ? error.name
-      : "error";
-}
-
-/** The most the interval is multiplied by while every board keeps failing. */
-export const SWEEP_MAX_BACKOFF = 8;
-
-/** How long a nudged board waits, so a burst of events is one pass. */
-export const NUDGE_DELAY_MS = 2_000;
-
-export interface Runner {
-  /** Look at this board soon, beside the sweep: the relay said something happened on it. */
-  nudge(boardId: string): void;
-  stop(): void;
-}
-
-/**
- * Run the loop: one sweep of every board now, then one every interval, never two passes at once
- * (a nudge waits for a sweep, and a sweep for a nudge). A sweep in which every board failed waits
- * twice as long before the next, up to `SWEEP_MAX_BACKOFF` times the interval; a sweep that read
- * any board goes back to the interval. A nudge looks at its board after `NUDGE_DELAY_MS`.
- */
-export function startRunner(
-  loop: Loop,
-  options: {
-    intervalMs: number;
-    log?: (line: string) => void;
-    /** Test seams: how a later run is scheduled and cancelled. */
-    schedule?: (run: () => void, ms: number) => unknown;
-    cancel?: (handle: unknown) => void;
-  },
-): Runner {
-  const log = options.log ?? console.log;
-  const schedule =
-    options.schedule ?? ((run: () => void, ms: number) => setTimeout(run, ms));
-  const cancel =
-    options.cancel ??
-    ((handle: unknown) =>
-      clearTimeout(handle as ReturnType<typeof setTimeout>));
-  let tail: Promise<unknown> = Promise.resolve();
-  const exclusive = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = tail.then(fn, fn);
-    tail = run.catch(() => undefined);
-    return run;
-  };
-
-  let failing = 0;
-  let stopped = false;
-  let sweepHandle: unknown = null;
-  let nudgeHandle: unknown = null;
-  const nudged = new Set<string>();
-
-  async function sweep(): Promise<void> {
-    try {
-      const r = await exclusive(() => loop.passAll());
-      failing = r.boards > 0 && r.failedBoards === r.boards ? failing + 1 : 0;
-    } catch (error) {
-      failing++;
-      log(`loop: sweep failed (${describe(error)})`);
-    }
-    if (stopped) return;
-    const factor = Math.min(2 ** failing, SWEEP_MAX_BACKOFF);
-    sweepHandle = schedule(() => void sweep(), options.intervalMs * factor);
-  }
-
-  async function drainNudges(): Promise<void> {
-    nudgeHandle = null;
-    const boards = [...nudged];
-    nudged.clear();
-    for (const boardId of boards) {
-      if (stopped) return;
-      await exclusive(() => loop.passBoard(boardId)).catch((error: unknown) =>
-        log(`loop: ${boardId} unread (${describe(error)})`),
-      );
-    }
-  }
-
-  void sweep();
-  return {
-    nudge(boardId) {
-      if (stopped) return;
-      nudged.add(boardId);
-      nudgeHandle ??= schedule(() => void drainNudges(), NUDGE_DELAY_MS);
-    },
-    stop() {
-      stopped = true;
-      if (sweepHandle !== null) cancel(sweepHandle);
-      if (nudgeHandle !== null) cancel(nudgeHandle);
     },
   };
 }

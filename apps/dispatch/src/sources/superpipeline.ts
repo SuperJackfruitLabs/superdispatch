@@ -12,6 +12,11 @@
  *   `dispatch:reserve`): hold the card for the chosen agent; it lapses on its own.
  *   `DELETE …/reservation` clears a hold.
  *
+ * - `PUT /v1/boards/:boardId/scheduling` `{placementWindowSeconds}` (scope `dispatch:reserve`): the
+ *   board's placement window, set when it is opted in and 0 when it is opted out. Inside it,
+ *   SuperPipeline holds a card that just became ready back from pull so it can be placed first. A
+ *   SuperPipeline without it answers 404, and cards are claimed by pull as before.
+ *
  * - `GET /v1/agents/load` (scope `dispatch:read`): every agent of the workspace with the cards it
  *   holds over every board (`inFlight`), its `capacity` and its latest run heartbeat
  *   (`lastHeartbeatAt`): the load and health of an agent that claims with its own token, read
@@ -120,6 +125,8 @@ export interface Superpipeline {
     hold: { agentId: string; ttlSeconds: number; decisionId: string },
   ): Promise<ReserveAnswer>;
   clearReservation(boardId: string, cardId: string): Promise<void>;
+  /** Set the board's placement window, 0 to 30 seconds; 0 is none. Throws `SourceError`. */
+  setPlacementWindow(boardId: string, seconds: number): Promise<void>;
   /** Every agent's load over the workspace (`GET /v1/agents/load`). Throws `SourceError`. */
   agentLoad(): Promise<DirectLoadEntry[]>;
 }
@@ -322,6 +329,15 @@ export function createSuperpipeline(
           },
         ];
       });
+    },
+
+    async setPlacementWindow(boardId, seconds) {
+      okBody(
+        "superpipeline",
+        await authed("PUT", `/v1/boards/${enc(boardId)}/scheduling`, {
+          placementWindowSeconds: seconds,
+        }),
+      );
     },
 
     async clearReservation(boardId, cardId) {
