@@ -54,9 +54,9 @@ Never commit secrets or keys.
 
 ## Releases
 
-Versions start at 0.0.1, and only the operator pushes tags. There is no production deploy yet:
-a tag runs the shared release workflow, which checks forge CI and publishes release notes
-(`.github/release-config.json`). `CHANGELOG.md` keeps an `## Unreleased` section: add an entry
+Versions start at 0.0.1, and only the operator pushes tags. A tag runs the shared release workflow: it checks forge CI, deploys
+production through the host's forced-command key (`deploy/production/release.sh`, settings in
+`.github/release-config.json`) and publishes the release notes. `CHANGELOG.md` keeps an `## Unreleased` section: add an entry
 with each change people will notice. Before a tag, a release-prep PR runs
 `sh .github/release/prep-release.sh vX.Y.Z`.
 
