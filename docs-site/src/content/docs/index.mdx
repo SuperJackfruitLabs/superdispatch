@@ -2,49 +2,67 @@
 title: SuperDispatch
 description: The scheduler for SuperPipeline and AgentPod. When a card is ready, SuperDispatch decides which agent should take it, and records why.
 template: splash
-hero:
-  title: Which agent takes the card, and why.
-  tagline: When a SuperPipeline card is ready, SuperDispatch filters every agent, scores the ones left and names one. SuperPipeline holds the card for it for a moment. Every decision is a record.
-  actions:
-    - text: Get started
-      link: /what-it-is/
-      icon: right-arrow
-    - text: superdispatch.dev
-      link: https://superdispatch.dev
-      icon: external
-      variant: minimal
+status: wet paint
 ---
 
-import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+import BentoHome from '@superjackfruit/docs-theme/components/BentoHome.astro';
+import FlowSteps from '@superjackfruit/docs-theme/components/FlowSteps.astro';
+import WetPaint from '@superjackfruit/docs-theme/components/WetPaint.astro';
+import JackAside from '@superjackfruit/docs-theme/components/JackAside.astro';
 
-<Aside type="caution" title="Early">
-  v0.0.1 runs in production with no board opted in yet. Placement is proven end to end on staging.
-  [Status and limits](/status/) lists what it does not do yet.
-</Aside>
+<BentoHome
+  claim="Which agent takes the card, and why."
+  sub="A card is ready and three agents could take it. SuperDispatch looks at all of them, crosses out the ones who can't, ranks the rest and points at one. Then it writes down why, every time, like a maître d' who keeps excellent notes and never carries a single plate."
+  actions={[
+    { text: 'Your first placement', link: '/start/first-placement/' },
+    { text: 'What it is', link: '/what-it-is/', variant: 'secondary' },
+  ]}
+  quickstart={{
+    label: 'Quick start: opt a board in',
+    command: 'curl -X PUT -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards/brd_…',
+    note: 'No body. Put your board id where brd_… is, and the operator token in $TOKEN. Nothing is placed until a board is opted in.',
+  }}
+  ask={{ examples: ["Why wasn't my agent chosen?", 'Does it ever claim a card itself?', 'What happens when it is down?', 'Will it make me coffee?'] }}
+  flowTitle="How a card gets placed (drag the slider; it waits for you)"
+>
+  <FlowSteps
+    label="Placement step"
+    steps={[
+      { label: 'Ready', body: "A card.ready event arrives for an opted-in board. SuperPipeline holds the card back from pull for the board's placement window, 10 seconds by default, so it can be placed before the fastest grabber wins.", items: [{ text: 'card_1042', card: true }] },
+      { label: 'Filter', body: 'Every agent of the workspace goes through the filters. Here agt_cyd already has work in hand (not-idle) and agt_eli is not on the board’s roster (not-on-roster). Each crossing-out is written down with its reason code.', items: [{ text: 'agt_ada' }, { text: 'agt_cyd', out: true }, { text: 'agt_eli', out: true }] },
+      { label: 'Score', body: 'Whoever is left is ranked: record at this board stage first, then success on this board, then whoever has waited longest since their last job.', items: [{ text: 'agt_ada · 1st', win: true }] },
+      { label: 'Hold', body: 'SuperDispatch asks SuperPipeline to hold the card for agt_ada: 60 seconds by default. If that lapses, the runner-ups get 30 seconds each, then anyone with the capability may pull it.', items: [{ text: 'held 60 s', card: true }] },
+      { label: 'Claim', body: 'agt_ada claims the card inside its hold. On a later pass the decision settles with the outcome claimed, and the record is complete.', items: [{ text: 'agt_ada ✓', win: true }] },
+    ]}
+  />
+</BentoHome>
 
-## Four rules
+## Four rules it will not bend
 
-<CardGrid>
-  <Card title="It advises; SuperPipeline holds">
-    SuperDispatch names a preferred agent. SuperPipeline holds the card for that agent for a short
-    reservation that lapses on its own. SuperDispatch never claims a card or hands one over.
-  </Card>
-  <Card title="It reads, and never edits a roster">
-    It reads cards, rosters, load and history through each product's public API and owns none of
-    their data. Roster and supply changes it finds are advice for a person.
-  </Card>
-  <Card title="Nothing requires it">
-    Without it, every agent claims by pull as before. When it is slow or absent the cost is the
-    reservation window, never the claim.
-  </Card>
-  <Card title="Every decision is a record">
-    The card, every candidate, each filter's result with its reason code, the score that ranked the
-    rest, the hold, and what became of the card.
-  </Card>
-</CardGrid>
+**It points; SuperPipeline holds.** SuperDispatch names a preferred agent, and SuperPipeline holds
+the card for that agent for a short reservation that lapses on its own. SuperDispatch never claims
+a card and never hands one over. (The maître d' does not carry plates. We checked. There's a test.)
 
-Start with [what it is](/what-it-is/), then [how a placement works](/placement/overview/). To run
-it, see [Running it](/run/running-it/) and [Settings](/run/settings/).
+**It reads, and never edits a roster.** It reads cards, rosters, load and history through each
+product's public API and owns none of their data. When it spots a lane that rests on one agent, it
+writes a [roster suggestion](/records/roster-suggestions/) for a person, and the person decides.
 
-For agents, the same docs are published as plain text: [`/llms.txt`](/llms.txt) indexes them, and
+**Nothing requires it.** Switch it off and every agent claims by pull, exactly as before. When it is
+slow or absent, the cost is the reservation window, never the claim.
+
+**Every decision is a record.** The card, every candidate, each filter's result with its reason
+code, the score that ranked the rest, the hold, and what became of the card. "Why did that go
+there?" always has an answer. See [Decision records](/records/decisions/).
+
+<WetPaint>
+  SuperDispatch is new. v0.0.1 runs in production with no board opted in yet, and placement is
+  proven end to end on staging. [Status and limits](/status/) lists what it does not do yet.
+</WetPaint>
+
+<JackAside>
+  I read these docs so you don't have to read all of them at once. Ask me in the box up top, and if
+  the answer isn't in here I'll say so rather than make one up.
+</JackAside>
+
+For agents, the same docs are plain text: [`/llms.txt`](/llms.txt) indexes them, and
 [`/llms-full.txt`](/llms-full.txt) is every page in one file.
