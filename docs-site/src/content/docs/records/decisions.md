@@ -117,6 +117,6 @@ Each candidate:
 
 ## Not yet an event
 
-The charter asks for each decision to be published through treaty's relay, so SuperWitness can
-audit it and chat can show it. That needs a decision event in treaty's catalogue first. Until then
+The charter asks for each decision to be published through [Treaty's relay](https://treaty.superjackfruit.com/relay/), so SuperWitness can
+audit it and chat can show it. That needs a decision event in [Treaty's catalogue](https://treaty.superjackfruit.com/events/) first. Until then
 the operator API is the only way to read decisions.

@@ -98,7 +98,7 @@ AgentPod's bridge claims a ready card within seconds, so a sweep alone would los
 pull. When the operator opts a board in, SuperDispatch sets the board's **placement window** on
 SuperPipeline (`SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS`, 10 by default; 0 on opt-out). Inside it:
 
-- SuperPipeline holds a card that just became ready back from pull and relays `card.ready`;
+- SuperPipeline holds a card that just became ready back from pull and relays [`card.ready`](https://treaty.superjackfruit.com/events/card-ready-v1/);
 - SuperDispatch places that card on delivery, alone, with the roster the sweep cached (AgentPod's
   roster read probes every station and takes seconds, longer than the window can spare);
 - a hold made inside the window is claimable by its agent at once.

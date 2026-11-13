@@ -34,7 +34,7 @@ still swept meanwhile.
 - The hub must list SuperDispatch in its `ROSTER_READERS`, and SuperDispatch's credential must
   have `cards:read`, `dispatch:read` and `dispatch:reserve`. See
   [Running it](/run/running-it/#what-it-needs-from-the-others).
-- For the placement window to help, the **event relay** must deliver SuperPipeline's events to
+- For the placement window to help, the **[event relay](https://treaty.superjackfruit.com/relay/)** must deliver SuperPipeline's events to
   SuperDispatch. Without it, the sweep alone places cards and most are lost to pull first.
 
 ## Watch it work
