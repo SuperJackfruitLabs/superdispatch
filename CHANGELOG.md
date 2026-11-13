@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- docs.superdispatch.dev: the documentation (`docs-site/`, Starlight), with `/llms.txt` and
+  `/llms-full.txt`, deployed beside the landing page. Its build checks every setting, default,
+  range, reason code, outcome and suggestion kind it names against the service's source, and CI
+  builds it when `docs-site/` or the service's source changes.
+
 - superdispatch.dev: the landing page (`landing/`), deployed from the GitHub mirror on merge to
   main (`.github/workflows/sites.yml`). CI builds only the site when only `landing/` changed, and
   skips it when it did not.
