@@ -49,7 +49,13 @@ export default defineConfig({
           label: 'Start',
           items: [
             { label: 'What SuperDispatch is', slug: 'what-it-is' },
-            { label: 'Your first placement', slug: 'start/first-placement' },
+            {
+              label: 'Your first placement',
+              items: [
+                { label: '1. What you need', slug: 'start/what-you-need' },
+                { label: '2. Place a card', slug: 'start/first-placement' },
+              ],
+            },
             { label: 'Status and limits', slug: 'status' },
           ],
         },
