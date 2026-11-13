@@ -1,0 +1,19 @@
+{
+  "name": "@superdispatch/landing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --port 4507",
+    "build": "astro build && node scripts/check-frame.mjs",
+    "preview": "astro preview --port 4507",
+    "check:frame": "node scripts/check-frame.mjs"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.4",
+    "@superjackfruit/frontdoor": "file:vendor/superjackfruit-frontdoor-0.0.13.tgz",
+    "@superjackfruit/vibekit": "file:vendor/superjackfruit-vibekit-0.0.14.tgz",
+    "astro": "^7.3.2",
+    "three": "^0.186.1"
+  }
+}

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- superdispatch.dev: the landing page (`landing/`), deployed from the GitHub mirror on merge to
+  main (`.github/workflows/sites.yml`). CI builds only the site when only `landing/` changed, and
+  skips it when it did not.
+
 ## v0.0.1 — 2026-11-13
 
 - A production deploy: a `vX.Y.Z` tag deploys the tag to the production host through its

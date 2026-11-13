@@ -1,0 +1,66 @@
+---
+// Not found.
+//
+// The site is a Cloudflare Worker with static assets (landing/wrangler.jsonc), configured with
+// `assets.not_found_handling: "404-page"`. That setting serves this page, built to dist/404.html,
+// with a real 404 status for any path that has no file. Without it a missing path gets the
+// platform's bare error, or, with single-page handling, the home page and a 200, which tells a
+// crawler that /anything is a real page.
+//
+// Same tokens and faces as index.astro (kept in step by hand; the two pages share no layout on
+// purpose), nothing more.
+import ShareMeta from '../components/ShareMeta.astro';
+
+const README = 'https://github.com/SuperJackfruitLabs/superdispatch#readme';
+const title = 'Not found — SuperDispatch';
+const description = 'There is no page at this address.';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0d1214" />
+    <ShareMeta title={title} description={description} canonical={false} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500&display=swap" />
+    <style>
+      :root {
+        --bg: #0d1214; --text: #e7eeee; --muted: #8c979c; --teal: #3fd6cd; --teal-text: #3fd6cd;
+        --display: 'Space Grotesk', system-ui, sans-serif; --sans: 'IBM Plex Sans', system-ui, sans-serif;
+        --mono: 'IBM Plex Mono', ui-monospace, monospace;
+        color-scheme: dark light;
+      }
+      @media (prefers-color-scheme: light) {
+        :root { --bg: #f6f8f7; --text: #101618; --muted: #52605f; --teal: #00706c; --teal-text: #005a57; }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+      main { max-width: 64ch; margin: 0 auto; padding: 96px 24px; }
+      .mark { display: block; width: 64px; height: 64px; margin-bottom: 28px; }
+      .code { font-family: var(--mono); font-size: 13px; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; }
+      h1 { font-family: var(--display); font-weight: 700; font-size: clamp(34px, 6vw, 48px); letter-spacing: -0.03em; line-height: 1.08; margin: 0 0 12px; }
+      p { color: var(--muted); margin: 0 0 26px; }
+      nav { display: flex; gap: 20px; flex-wrap: wrap; }
+      nav a { color: var(--teal-text); font-weight: 500; text-underline-offset: 3px; }
+      a:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="mark" src="/favicon.svg" alt="" width="64" height="64" />
+      <p class="code">404</p>
+      <h1>Nothing here</h1>
+      <p>There is no page at this address; it may have moved, or the link may be mistyped.</p>
+      <nav>
+        <a href="/">SuperDispatch home</a>
+        <a href={README}>README</a>
+      </nav>
+    </main>
+  </body>
+</html>

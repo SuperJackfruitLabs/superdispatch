@@ -3,3 +3,5 @@ node_modules/
 .DS_Store
 dist/
 .data/
+# The landing page vendors the suite frame and vibekit as tarballs, like the other sites.
+!landing/vendor/*.tgz

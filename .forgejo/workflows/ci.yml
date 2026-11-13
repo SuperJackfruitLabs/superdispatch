@@ -11,7 +11,44 @@ permissions:
   contents: read
 
 jobs:
+  # Which parts changed. A pull request or push that only touches landing/ runs just the site's
+  # build; anything else, a workflow, or any other trigger runs everything. The site reads the
+  # placement source at build time, so a change there builds the site too.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.plan.outputs.app }}
+      landing: ${{ steps.plan.outputs.landing }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: plan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          app=true landing=true
+          if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ] && files=$(git diff --name-only "$BASE" HEAD); then
+            app=false landing=false
+            while IFS= read -r f; do
+              case "$f" in
+                '') ;;
+                landing/*) landing=true ;;
+                .forgejo/*|.github/workflows/*) app=true landing=true ;;
+                apps/dispatch/src/placement/index.ts) app=true landing=true ;;
+                *) app=true ;;
+              esac
+            done <<< "$files"
+          fi
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "landing=$landing" >> "$GITHUB_OUTPUT"
+          echo "app=$app landing=$landing"
+
   check:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -31,6 +68,25 @@ jobs:
       - name: Test
         run: bun run test
 
+  landing:
+    needs: changes
+    if: needs.changes.outputs.landing == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          # Astro 7 needs Node 22.23.4 or newer; a runner's cached 22 can be older.
+          node-version: 24
+      - name: Build the site
+        working-directory: landing
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
   claude-triage:
     # Shared kit fragment (claude-ci), Forgejo Actions: the last job of the product's CI
     # workflow, because Forgejo has no workflow_run event. Paste it under `jobs:` and list every
@@ -40,7 +96,7 @@ jobs:
     # Read-only and a no-op until the repository has a CLAUDE_CI_API_KEY secret. It checks out
     # nothing: the script comes from the base branch and the logs through the API. Forks get
     # no secrets and skip. On a GitHub mirror of the product it does nothing.
-    needs: [check]
+    needs: [changes, check, landing]
     if: failure() && github.event_name == 'pull_request' && github.server_url != 'https://github.com'
     runs-on: ubuntu-latest
     timeout-minutes: 10
