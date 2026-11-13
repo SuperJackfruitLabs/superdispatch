@@ -1,12 +1,9 @@
 // Shared by the scenes' small loader and their lazy renderer: which sun phase to show, the product
 // accent as a colour, and whether motion is wanted. Phase and accent come from vibekit's plain (no
 // Svelte) entry, so the scenes follow the same day as the apps.
-import { ACCENTS, ACCENT_HUES, PHASES, phaseAt } from '@superjackfruit/vibekit/appearance';
+import { ACCENTS, ACCENT_HUES, PHASES, PRODUCT_ACCENTS, phaseAt } from '@superjackfruit/vibekit/appearance';
 
 export const PRODUCT = 'superdispatch';
-// SuperDispatch's own colour is vibekit's teal. vibekit 0.0.14 does not list the product yet, so
-// the accent is named here; once it does, this becomes PRODUCT_ACCENTS[PRODUCT], as on the others.
-const OWN_ACCENT = 'teal';
 
 /** The visitor's local sun phase. A vibekit page that turned time of day off gets plain noon. */
 export function scenePhase() {
@@ -18,7 +15,7 @@ export function scenePhase() {
 /** The accent's OKLCH hue as linear-sRGB [r, g, b], at the given lightness and chroma. */
 export function accentRGB(L = 0.74, C = 0.13) {
   const pick = document.documentElement.dataset.accent;
-  const h = (ACCENT_HUES[ACCENTS.includes(pick) ? pick : OWN_ACCENT] * Math.PI) / 180;
+  const h = (ACCENT_HUES[ACCENTS.includes(pick) ? pick : PRODUCT_ACCENTS[PRODUCT]] * Math.PI) / 180;
   const a = C * Math.cos(h), b = C * Math.sin(h);
   const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
   const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;

@@ -38,8 +38,11 @@ autoplayed. A still per beat and sun phase in `public/scenes/` covers reduced mo
 the moment before it loads; `scripts/render-stills.mjs` regenerates them.
 
 **Teal is spent on the chosen agent, the hold and the claim.** SuperDispatch's colour is vibekit's
-teal (OKLCH hue 192). vibekit 0.0.14 does not list the product yet, so `src/scripts/scenes/common.js`
-names the accent; when vibekit does, it reads `PRODUCT_ACCENTS` like the other landings.
+teal (OKLCH hue 192), named by `PRODUCT_ACCENTS.superdispatch` since vibekit 0.0.15. The scenes take
+its hue from there (`src/scripts/scenes/common.js`), and `src/accent.ts` reads its Daylight tokens for
+light and dark from the package's `accents.css` at build time, so the page follows vibekit rather
+than a copy. Only the grounds are the page's own. The suite frame keeps its own SuperDispatch colour,
+`#00afab`, for its bar and header.
 
 **Discovery.** `public/llms.txt`, a sitemap (`@astrojs/sitemap`), JSON-LD in the page head, and
 `public/og.png`, rendered from the suite's one share-image template (see `og/README.md`).
