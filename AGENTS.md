@@ -65,4 +65,4 @@ with each change people will notice. Before a tag, a release-prep PR runs
 sync; never edit a copy.
 
 `.github/workflows/release.yml` and `.github/release/` are copies of the shared release kit
-(estate `release/`). Change the master and sync; never edit a copy.
+(estate `release/`). Change the master and sync; never edit a copy. The exception: this repo's own release hook, `.github/release/ci-check.sh`.

@@ -3,7 +3,6 @@
   "ci": {
     "forge": "https://forge.superjackfruit.com",
     "repo": "SuperJackfruitLabs/superdispatch",
-    "context": "ci / check (push)",
-    "check_command": "bun install --frozen-lockfile && bun run check"
+    "context": "ci / check (push)"
   }
 }
