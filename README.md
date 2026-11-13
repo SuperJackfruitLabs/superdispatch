@@ -9,6 +9,9 @@ each ready card it filters the candidates, scores the ones left and names a pref
 SuperPipeline then holds the card for that agent for a short reservation. Each decision is
 recorded with every candidate considered and the reason for each.
 
+The documentation is at [docs.superdispatch.dev](https://docs.superdispatch.dev) (`docs-site/`),
+and the product page at [superdispatch.dev](https://superdispatch.dev) (`landing/`).
+
 ## Status
 
 It places cards, with holds that relax in tiers and fairness across boards. On the boards the
@@ -480,6 +483,9 @@ with it or without it.
 - `apps/dispatch/src/main.ts`: reads the settings, opens the store, starts the sweep, listens.
 - `deploy/staging/`: the staging deploy.
 - `deploy/production/`: the production deploy, its smoke check and its rollback.
+- `landing/` and `docs-site/`: superdispatch.dev and docs.superdispatch.dev, each with its own
+  `package.json` outside the Bun workspace. The docs check their claims against this source when
+  they build.
 
 An import goes down that list, never up, and placement does no I/O. A test holds both.
 

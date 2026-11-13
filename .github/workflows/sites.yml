@@ -1,13 +1,14 @@
 name: Deploy public site
-# Deploys superdispatch.dev on every merge to main that touches it, with the organisation's shared
-# CLOUDFLARE_API_TOKEN secret and CLOUDFLARE_ACCOUNT_ID variable. The websites environment only
-# accepts main. Run it by hand to redeploy. GitHub runs deploys; on forge this workflow does
-# nothing.
+# Deploys superdispatch.dev and docs.superdispatch.dev on every merge to main that touches either,
+# with the organisation's shared CLOUDFLARE_API_TOKEN secret and CLOUDFLARE_ACCOUNT_ID variable.
+# The websites environment only accepts main. Run it by hand to redeploy. GitHub runs deploys; on
+# forge this workflow does nothing.
 on:
   push:
     branches: [main]
     paths:
       - "landing/**"
+      - "docs-site/**"
       - "apps/dispatch/src/placement/index.ts"
       - "scripts/deploy-sites.sh"
       - ".github/workflows/sites.yml"
@@ -32,4 +33,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        run: scripts/deploy-sites.sh landing
+        # Both sites, whichever changed: each build is a minute, and a deploy of an unchanged site
+        # uploads nothing new.
+        run: scripts/deploy-sites.sh all

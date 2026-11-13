@@ -6,6 +6,8 @@ SuperDispatch places SuperPipeline cards onto AgentPod agents by capability, loa
 
 ## Docs
 
+- [Documentation](https://docs.superdispatch.dev): how a placement works, decision records, suggestions, settings, the operator API and production; every page as plain text in [llms-full.txt](https://docs.superdispatch.dev/llms-full.txt)
+- [Docs index for agents](https://docs.superdispatch.dev/llms.txt): the docs site's own llms.txt
 - [README](https://github.com/SuperJackfruitLabs/superdispatch#readme): what it does, every setting, the operator API
 - [Charter decision](https://github.com/SuperJackfruitLabs/charter/blob/main/decisions/2026-11-12-superdispatch-owns-the-scheduler.md): why SuperDispatch owns the scheduler, and what it may not do
 

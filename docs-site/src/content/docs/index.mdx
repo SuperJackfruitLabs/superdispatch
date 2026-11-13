@@ -1,0 +1,50 @@
+---
+title: SuperDispatch
+description: The scheduler for SuperPipeline and AgentPod. When a card is ready, SuperDispatch decides which agent should take it, and records why.
+template: splash
+hero:
+  title: Which agent takes the card, and why.
+  tagline: When a SuperPipeline card is ready, SuperDispatch filters every agent, scores the ones left and names one. SuperPipeline holds the card for it for a moment. Every decision is a record.
+  actions:
+    - text: Get started
+      link: /what-it-is/
+      icon: right-arrow
+    - text: superdispatch.dev
+      link: https://superdispatch.dev
+      icon: external
+      variant: minimal
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Early">
+  v0.0.1 runs in production with no board opted in yet. Placement is proven end to end on staging.
+  [Status and limits](/status/) lists what it does not do yet.
+</Aside>
+
+## Four rules
+
+<CardGrid>
+  <Card title="It advises; SuperPipeline holds">
+    SuperDispatch names a preferred agent. SuperPipeline holds the card for that agent for a short
+    reservation that lapses on its own. SuperDispatch never claims a card or hands one over.
+  </Card>
+  <Card title="It reads, and never edits a roster">
+    It reads cards, rosters, load and history through each product's public API and owns none of
+    their data. Roster and supply changes it finds are advice for a person.
+  </Card>
+  <Card title="Nothing requires it">
+    Without it, every agent claims by pull as before. When it is slow or absent the cost is the
+    reservation window, never the claim.
+  </Card>
+  <Card title="Every decision is a record">
+    The card, every candidate, each filter's result with its reason code, the score that ranked the
+    rest, the hold, and what became of the card.
+  </Card>
+</CardGrid>
+
+Start with [what it is](/what-it-is/), then [how a placement works](/placement/overview/). To run
+it, see [Running it](/run/running-it/) and [Settings](/run/settings/).
+
+For agents, the same docs are published as plain text: [`/llms.txt`](/llms.txt) indexes them, and
+[`/llms-full.txt`](/llms-full.txt) is every page in one file.
