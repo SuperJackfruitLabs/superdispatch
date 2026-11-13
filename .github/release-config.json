@@ -4,5 +4,8 @@
     "forge": "https://forge.superjackfruit.com",
     "repo": "SuperJackfruitLabs/superdispatch",
     "context": "ci / check (push)"
+  },
+  "deploy": {
+    "ssh_command": "superdispatch"
   }
 }

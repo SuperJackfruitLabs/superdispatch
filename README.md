@@ -478,9 +478,53 @@ with it or without it.
 - `apps/dispatch/src/routes/`: the HTTP surface: the health check, the relay's deliveries, the
   operator API.
 - `apps/dispatch/src/main.ts`: reads the settings, opens the store, starts the sweep, listens.
-- `deploy/staging/`: the staging deploy, off until the host is ready.
+- `deploy/staging/`: the staging deploy.
+- `deploy/production/`: the production deploy, its smoke check and its rollback.
 
 An import goes down that list, never up, and placement does no I/O. A test holds both.
+
+## Production
+
+A `vX.Y.Z` tag on main deploys production through the suite's shared release workflow
+(`.github/workflows/release.yml`, settings in `.github/release-config.json`, on the GitHub mirror
+only). It checks that forge CI passed for the tag's commit, or runs `bun run check` at the tag
+when it cannot read that; then the production host runs that tag's
+`deploy/production/release.sh` through its forced-command deploy key (`superdispatch <tag>`), and
+the release notes go up on GitHub with the tag's section of [`CHANGELOG.md`](CHANGELOG.md). Only
+the operator pushes tags. The deploy needs the mirror's `PROD_HOST` variable and the
+`PROD_SSH_KEY` and `PROD_KNOWN_HOSTS` secrets.
+
+`release.sh` takes an online copy of the store, builds the tag's image, recreates the service
+(`deploy/production/compose.yml`) and checks, in order: `/healthz`; a token from Accounts with the
+service's own credential, for SuperPipeline; the hub, at `AGENTPOD_URL`; and the loop's first
+sweep in the log. Those checks are the release's smoke: the service has no public address. If the
+release fails one, the release that ran before is put back, with the store's copy when the new
+build had moved the schema, because a build refuses a database written by a newer one.
+
+On the production host, as root:
+
+```sh
+bash /opt/superdispatch/deploy/production/smoke.sh v0.0.1      # the checks again, changing nothing
+bash /opt/superdispatch/deploy/production/rollback.sh v0.0.2   # put back the release before v0.0.2
+cd /opt/superdispatch && SUPERDISPATCH_TAG=$(cat /etc/superdispatch/deployed) \
+  docker compose -f deploy/production/compose.yml logs --tail 20 dispatch
+```
+
+| What           | Where                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| Settings       | `/etc/superdispatch/superdispatch.env`, written by the host's provisioning                  |
+| Store          | `/var/lib/superdispatch` on the host, mounted at `/data`, owned by the image's `bun`        |
+| Listens        | `127.0.0.1:8798` on the host (8796 in the container): the operator API                      |
+| Relay delivery | as `superdispatch` on the event relay's network (`treaty_relay`): deploy the relay first    |
+| The hub        | as `hub` through the host gateway (`AGENTPOD_URL=http://hub:3001`), as the relay reaches it |
+| Deployed tag   | `/etc/superdispatch/deployed`; the one before it, `/etc/superdispatch/previous`             |
+
+A deploy opts no board in. The settings that widen what SuperDispatch does are written once by
+the provisioning at their defaults, `SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off`
+and `SUPERDISPATCH_LEARNED=off`, and are the operator's to change in `superdispatch.env`; the
+change takes at the next release, or at `docker compose ... up -d --force-recreate dispatch`. The
+start line names all three: `listening on :8796, sweeping every 30s, candidates roster, policy
+off, learned routing off`.
 
 ## Checks
 
@@ -492,8 +536,8 @@ architecture test are described in [docs/code-quality.md](docs/code-quality.md).
 A `vX.Y.Z` tag on main runs the suite's shared release workflow (`.github/workflows/release.yml`,
 settings in `.github/release-config.json`, on the GitHub mirror only). It checks that forge CI
 passed for the tag's commit, or runs `bun run check` at the tag when it cannot read that, and
-publishes the release notes on GitHub with the tag's section of [`CHANGELOG.md`](CHANGELOG.md).
-There is no production deploy yet. Only the operator pushes tags.
+deploys it to production (see "Production"), and publishes the release notes on GitHub with the
+tag's section of [`CHANGELOG.md`](CHANGELOG.md). Only the operator pushes tags.
 
 ## Licence
 

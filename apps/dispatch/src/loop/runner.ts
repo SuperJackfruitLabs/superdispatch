@@ -61,10 +61,18 @@ export function startRunner(
   let nudgeHandle: unknown = null;
   const nudged = new Set<string>();
 
+  let first = true;
+
   async function sweep(): Promise<void> {
     try {
       const r = await exclusive(() => loop.passAll());
       failing = r.boards > 0 && r.failedBoards === r.boards ? failing + 1 : 0;
+      // Once, so a deploy can see the loop running even with no board opted in.
+      if (first)
+        log(
+          `loop: first sweep, ${r.boards} boards opted in, ${r.failedBoards} unread`,
+        );
+      first = false;
     } catch (error) {
       failing++;
       log(`loop: sweep failed (${describe(error)})`);

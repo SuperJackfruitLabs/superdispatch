@@ -1,0 +1,46 @@
+# SuperDispatch in production, beside the event relay and the AgentPod hub. Settings come from
+# /etc/superdispatch/superdispatch.env, minted on the host by the operator's provisioning. Deployed
+# by release.sh on a tag.
+#
+# Its store lives on the host, in /var/lib/superdispatch, mounted at /data (the image's default
+# SUPERDISPATCH_DATA_DIR) and owned by the image's `bun` user, so the host's backup can snapshot
+# it. release.sh makes the directory with that owner.
+#
+# Networks:
+#   - the relay's network (treaty's production compose, `treaty_relay`), as `superdispatch`: the
+#     address the relay delivers SuperPipeline's events to. treaty's relay must be deployed first.
+#   - the hub runs in the host's network, so it is reached as `hub` through the host gateway
+#     (`AGENTPOD_URL=http://hub:3001`), as the relay reaches it; the host's firewall lets the
+#     relay's bridge reach the hub's port.
+#   - published on loopback only, 127.0.0.1:8798, for the operator API. The service listens on
+#     8796 in the container, as everywhere; the host's 8796 is already the relay's smoke sink.
+#
+# Nothing here turns on a wider candidate set, the dispatch policy or learned routing: those are
+# settings in superdispatch.env, each off until the operator sets it.
+name: superdispatch
+
+services:
+  dispatch:
+    build:
+      context: ../..
+      dockerfile: apps/dispatch/Dockerfile
+    image: superdispatch:${SUPERDISPATCH_TAG:?SUPERDISPATCH_TAG is the release tag}
+    env_file: /etc/superdispatch/superdispatch.env
+    environment:
+      PORT: "8796"
+      SUPERDISPATCH_DATA_DIR: /data
+    extra_hosts:
+      - "hub:host-gateway"
+    ports:
+      - "127.0.0.1:8798:8796"
+    volumes:
+      - /var/lib/superdispatch:/data
+    networks:
+      relay:
+        aliases: [superdispatch]
+    restart: unless-stopped
+
+networks:
+  relay:
+    name: treaty_relay
+    external: true
