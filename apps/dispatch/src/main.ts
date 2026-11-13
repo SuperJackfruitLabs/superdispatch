@@ -106,7 +106,7 @@ const server = Bun.serve({
   }),
 });
 console.log(
-  `${SERVICE}: listening on :${server.port}, sweeping every ${config.sweepSeconds}s, learned routing ${config.learned}`,
+  `${SERVICE}: listening on :${server.port}, sweeping every ${config.sweepSeconds}s, candidates ${config.candidates}, policy ${config.policy}, learned routing ${config.learned}`,
 );
 
 async function shutdown() {
