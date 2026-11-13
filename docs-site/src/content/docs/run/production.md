@@ -3,7 +3,7 @@ title: Production
 description: How a SuperDispatch release reaches production, what the release checks, how to roll back, and where its settings and store live.
 ---
 
-v0.0.1 runs in production, with no board opted in yet.
+v0.0.1 runs in production and places cards on every board the operator has opted in.
 
 ## How a release deploys
 

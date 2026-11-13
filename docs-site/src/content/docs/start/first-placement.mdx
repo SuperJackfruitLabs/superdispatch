@@ -1,0 +1,153 @@
+---
+title: Your first placement
+description: A tutorial. Opt a board in, watch SuperDispatch place its first card, and read the decision that says why that agent and not the others.
+status: wet paint
+---
+
+import Tip from '@superjackfruit/docs-theme/components/Tip.astro';
+import HeadsUp from '@superjackfruit/docs-theme/components/HeadsUp.astro';
+import JackAside from '@superjackfruit/docs-theme/components/JackAside.astro';
+
+Welcome! By the end of this page a card will have been placed with an agent, and you'll be able
+to say exactly why that agent got it and the others didn't. That second part is the whole point.
+Placement without a reason is just a coin toss with extra steps.
+
+Our running cast: a board called `brd_…` (yours), a card that is about to become ready, and two
+or more agents who would all quite like it. SuperDispatch plays the maître d'. It looks at every
+guest, seats the right one, and writes it all down in a little book. It never carries a plate.
+Remember that; it comes up again.
+
+## What you need first
+
+SuperDispatch only reads, so the interesting things have to exist somewhere else before it can
+look at them:
+
+- **SuperDispatch running**, with its operator token in `$TOKEN`. [Running it](/run/running-it/)
+  starts it, and lists what it needs from SuperPipeline, AgentPod and Accounts.
+- **A SuperPipeline board** with a stage that asks for a capability.
+- **At least two agents on that board's roster in AgentPod** with that capability. With one,
+  there is nothing to choose between: the card is recorded as `one-candidate` and left to pull.
+  (A maître d' with one table and one guest is just a doorman.)
+
+<Tip>
+  The event relay is optional, but worth having. With it, a `card.ready` is placed the moment it
+  arrives. Without it, SuperDispatch only notices on its next sweep, every 30 seconds, and a quick
+  agent may well have pulled the card by then.
+</Tip>
+
+## 1. Check it is listening
+
+```sh
+curl http://127.0.0.1:8796/healthz
+```
+
+It should answer:
+
+```json
+{ "ok": true, "service": "superdispatch" }
+```
+
+If you get silence instead, the service isn't up. A missing or malformed setting stops it before it
+listens, and it names the setting (never its value), so the log is the place to look.
+
+## 2. Opt the board in
+
+Nothing gets placed until you say so. A fresh SuperDispatch, production included, has no boards
+at all. That's on purpose: a scheduler that starts scheduling the moment it is switched on is a
+surprise, and nobody likes surprises in production.
+
+```sh
+curl -X PUT -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards/brd_…
+```
+
+No body. The answer is the board:
+
+```json
+{ "board": { "boardId": "brd_…", "enabled": true, "createdAt": "…", "updatedAt": "…" } }
+```
+
+Two things just happened. The board joined every sweep (and got looked at straight away), and
+SuperDispatch set the board's **placement window** on SuperPipeline: 10 seconds by default. For
+those 10 seconds a newly ready card is held back from pull, so it can be placed before the fastest
+grabber gets there.
+
+## 3. Make a card ready
+
+In SuperPipeline, put a card in the stage that asks for your agents' capability. It's ready the
+moment it waits there, unclaimed and not held.
+
+Now give it a moment. With the relay it's a second or two. Without it, wait up to the next sweep:
+30 seconds by default.
+
+## 4. Read the decision
+
+Every placement is a **decision**, and decisions are the little book. Ask for the board's latest:
+
+```sh
+curl -H "authorization: Bearer $TOKEN" "http://127.0.0.1:8796/v1/decisions?board=brd_…&limit=20"
+```
+
+Newest first. Your card's decision has, among other things:
+
+| Field | What it tells you |
+|---|---|
+| `chosen` | The agent SuperDispatch picked |
+| `tier` | Which step of the ladder this was: `winner` on a first placement |
+| `policy` | The ranking it used, by name: `idle-stage-success-lru@3` |
+| `candidates` | Every agent it looked at, each with every filter's result |
+| `reservation` | `{ reservedUntil }`: when the hold for the chosen agent ends |
+| `outcome` | What became of the card: `{ status, by, at }`, null until a later pass settles it |
+
+Now find an agent that wasn't chosen and read its `filters`. A filter that says
+`"passed": false` carries the reason. For example, `not-idle` means it already had work in hand
+somewhere, and `capability-missing` means the stage asks for something it hasn't got. Every reason
+code is on [Candidates and filters](/placement/filters/).
+
+And there's your answer to "why that agent?", in writing, with no guessing. The agents that
+passed every filter carry a `score`. The best one has the highest `total`, and its `terms` say
+what weighed.
+
+## 5. Watch it settle
+
+The chosen agent has the card held for it: 60 seconds by default for the winner. On a later pass
+SuperDispatch looks again and settles the decision's `outcome`:
+
+| `outcome.status` | Means |
+|---|---|
+| `claimed` | The chosen agent claimed it. The happy ending |
+| `claimed-by-other` | Somebody else claimed it, after the hold lapsed or from off the roster |
+| `expired` | The hold lapsed and the card still waits. The chosen agent didn't come |
+| `superseded` | A person moved or archived the card before anyone claimed it |
+| `not-reserved` | SuperPipeline refused the hold, so nothing was held |
+
+If the winner doesn't turn up, the ladder relaxes. The runner-ups get the card held for them one
+at a time, 30 seconds each, and then anyone with the capability may pull it. Each step is its own
+decision, so the book says that too. See [Holds, tiers and fairness](/placement/holds-and-tiers/).
+
+<HeadsUp>
+  Notice who did the claiming: the agent, through SuperPipeline. SuperDispatch pointed, and that's
+  all it ever does. (Told you the plates would come up again.) If SuperDispatch stops, every hold
+  lapses on its own and agents claim by pull exactly as before.
+</HeadsUp>
+
+## 6. Opt out, if you like
+
+```sh
+curl -X DELETE -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards/brd_…
+```
+
+The board's row stays, so a later `PUT` turns it back on. Its decisions stay readable, holds
+already made lapse on their own, and its placement window goes back to none.
+
+## Where next
+
+- [A placement, end to end](/placement/overview/) walks one placement step by step, including the
+  reasons nobody gets chosen.
+- [Decision records](/records/decisions/) explains every field of the little book.
+- [Roster suggestions](/records/roster-suggestions/): after each sweep SuperDispatch reads its own
+  book back and flags lanes that lean on a single agent.
+
+<JackAside>
+  If something here didn't go the way the page said, ask me on the docs home. I'll answer from
+  these docs, and tell you plainly when they don't cover it.
+</JackAside>
