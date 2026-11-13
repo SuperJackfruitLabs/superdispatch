@@ -4,6 +4,9 @@ SuperDispatch has no production deploy yet: a release publishes its notes on Git
 
 ## Unreleased
 
+- superdispatch.dev: the landing page (`landing/`), deployed from the GitHub mirror on merge to
+  main (`.github/workflows/sites.yml`). CI builds only the site when only `landing/` changed, and
+  skips it when it did not.
 - Supply proposals: advice for a person when a lane goes unplaced for want of supply, kept with
   the roster suggestions and listed by kind (`GET /v1/suggestions?kind=`). `change-model` (an
   agent turned away only for its model), `move-to-host` (another station in AgentPod's registry

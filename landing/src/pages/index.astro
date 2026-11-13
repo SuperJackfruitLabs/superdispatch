@@ -1,0 +1,507 @@
+---
+/**
+ * superdispatch.dev — the public page.
+ *
+ * One page, no framework; the suite frame owns the header, footer and theme toggle. Its job is to
+ * explain the product to somebody who typed the domain, and then send them to the README or the
+ * source. There is no app to sign in to and no release to download yet, so the page offers neither.
+ *
+ * This directory is deliberately outside the Bun workspace and has its own npm lockfile: nothing
+ * in `apps/` shares a dependency tree with it, and `bun install` never looks in here.
+ *
+ * Every label in the hero is real. The hero is one placement decision as SuperDispatch records it
+ * (apps/dispatch/src/placement/index.ts, `Decision` and `CandidateRecord`; the store adds the hold
+ * and the outcome):
+ *   card       card.boardId / card.cardId · card.stageKey
+ *   policy     POLICY, read from the source below
+ *   tier       tier "winner", step 1 (the first hold of the card's ladder)
+ *   candidates candidate.agentId; a rejected one shows its filter's reason code (FILTERS), an
+ *              eligible one its score.total
+ *   hold       SUPERDISPATCH_RESERVATION_SECONDS' default, 60
+ *   outcome    one of claimed · claimed-by-other · expired · superseded
+ * The reason codes listed under "Every decision is a record" are read from FILTERS at build time,
+ * so this page cannot name a reason the code does not have. If any of these change, this page is
+ * wrong.
+ *
+ * "How it places a card" carries a small three.js scene (src/scripts/scenes): a board and five
+ * stations pinned beside the five steps; scroll scrubs it, one beat per step, as each crosses the
+ * viewport's centre. It loads only near the panel, after the page's load; a still per beat and sun
+ * phase in public/scenes covers reduced motion, no WebGL and the moment before it loads. Its labels
+ * are the HTML around it.
+ *
+ * Status, said plainly: early; proven on staging; production is being set up, so the page does not
+ * say it is live. Teal is spent on the chosen agent, the hold and the claim.
+ */
+import ShareMeta from '../components/ShareMeta.astro';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import SuiteHead from '@superjackfruit/frontdoor/components/SuiteHead.astro';
+import Frame from '@superjackfruit/frontdoor/components/Frame.astro';
+
+const SITE = 'https://superdispatch.dev';
+const REPO = 'https://github.com/SuperJackfruitLabs/superdispatch';
+const FORGE = 'https://forge.superjackfruit.com/SuperJackfruitLabs/superdispatch';
+const README = `${REPO}#readme`;
+const CHARTER = 'https://github.com/SuperJackfruitLabs/charter/blob/main/decisions/2026-11-12-superdispatch-owns-the-scheduler.md';
+const TITLE = 'SuperDispatch — which agent takes the card, and why';
+const DESCRIPTION =
+  'The scheduler for SuperPipeline and AgentPod: it places each ready card on an agent by capability, load and history, and records every decision with its reasons. Early. Apache-2.0.';
+
+// Structured data for search and agents; every value is one the page already states.
+const JSON_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'SuperDispatch',
+  description: DESCRIPTION,
+  url: SITE,
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux',
+  license: 'https://www.apache.org/licenses/LICENSE-2.0',
+  sameAs: [REPO, FORGE],
+  publisher: { '@type': 'Organization', name: 'Super Jackfruit Labs', url: 'https://superjackfruit.com' },
+};
+
+// The policy name and every rejection reason, read from placement at build time. The build runs
+// in landing/, so the service's source is one directory up.
+const placementSource = readFileSync(resolve(process.cwd(), '../apps/dispatch/src/placement/index.ts'), 'utf8');
+const POLICY = placementSource.match(/export const POLICY = "([^"]+)"/)?.[1];
+const filtersBlock = placementSource.match(/export const FILTERS = \{([\s\S]*?)\n\} as const/)?.[1] ?? placementSource.match(/export const FILTERS = \{([\s\S]*?)\n\};/)?.[1] ?? '';
+const REASONS = [...filtersBlock.matchAll(/^\s+[a-zA-Z]+: "([a-z-]+)",/gm)].map((m) => m[1]);
+if (!POLICY) throw new Error('landing: found no POLICY in apps/dispatch/src/placement/index.ts');
+if (REASONS.length < 10) throw new Error(`landing: read only ${REASONS.length} reason codes from FILTERS`);
+for (const r of ['not-on-roster', 'capability-missing', 'not-idle']) if (!REASONS.includes(r)) throw new Error(`landing: FILTERS has no ${r}`);
+
+// The hero's candidates: field names real, agents and numbers made up.
+const candidates = [
+  { id: 'agt_ada', score: '0.81', chosen: true },
+  { id: 'agt_ben', score: '0.64' },
+  { id: 'agt_cyd', reason: 'not-idle' },
+  { id: 'agt_dev', reason: 'capability-missing' },
+  { id: 'agt_eli', reason: 'not-on-roster', note: 'keeps pulling' },
+];
+
+const RUN = [
+  'bun install',
+  'SUPERPIPELINE_URL=… AGENTPOD_URL=… ORG_PLANE_URL=… \\',
+  '  ORG_PLANE_SERVICE_CREDENTIAL=… TREATY_RELAY_DELIVERY_SECRET=… \\',
+  '  SUPERDISPATCH_OPERATOR_TOKEN_SHA256=… bun apps/dispatch/src/main.ts',
+  'curl http://127.0.0.1:8796/healthz',
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{TITLE}</title>
+    <meta name="description" content={DESCRIPTION} />
+    <meta name="theme-color" content="#0d1214" />
+    <SuiteHead product="superdispatch" />
+    <ShareMeta title={TITLE} description={DESCRIPTION} />
+    <script type="application/ld+json" set:html={JSON.stringify(JSON_LD)} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
+    <style>
+      /* Contrast (WCAG 2.x), measured on the grounds they sit on:
+           dark   teal #3fd6cd on #0d1214 10.4:1 · on the teal pill 7.2:1 · muted #8c979c 5.9:1 on surface
+                  button text #06201f on #3fd6cd 9.6:1 · warn #f4a526 on its pill 6.5:1
+           light  teal #00706c on #f6f8f7 5.6:1 (headline, links) · teal-text #005a57 on the teal
+                  pill 6.8:1 · button text #ffffff on #00706c 5.8:1 · muted #52605f 6.3:1
+         Light-theme teal is the deep teal because #00afab on a light ground is 2.6:1. */
+      :root {
+        --bg: #0d1214; --surface: #141b1e; --inset: #080c0d; --line: rgba(255,255,255,.08);
+        --text: #e7eeee; --muted: #8c979c; --teal: #3fd6cd; --teal-deep: #00afab;
+        --teal-tint: rgba(63,214,205,.14); --warn: #f4a526; --warn-tint: rgba(244,165,38,.15);
+        --teal-text: #3fd6cd; --teal-ink: #06201f; --code: #c9d3d6; --sunk: #6f7a7f;
+        --display: 'Space Grotesk', 'IBM Plex Sans', system-ui, sans-serif; --sans: 'IBM Plex Sans', system-ui, sans-serif;
+        --mono: 'IBM Plex Mono', ui-monospace, monospace;
+        color-scheme: dark light;
+      }
+      /* Light tokens: chosen by the toggle (data-theme="light"), or by the system when the
+         visitor has not chosen. */
+      :root[data-theme='light'] {
+        --bg: #f6f8f7; --surface: #ffffff; --inset: #ecf1f0; --line: rgba(13,18,20,.1);
+        --text: #101618; --muted: #52605f; --teal: #00706c; --teal-deep: #005a57;
+        --teal-tint: rgba(0,143,138,.12); --warn: #8a5a06; --warn-tint: rgba(244,165,38,.18);
+        --teal-text: #005a57; --teal-ink: #ffffff; --code: #263133; --sunk: #8d999b;
+        color-scheme: light;
+      }
+      :root[data-theme='dark'] { color-scheme: dark; }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme='dark']) {
+          --bg: #f6f8f7; --surface: #ffffff; --inset: #ecf1f0; --line: rgba(13,18,20,.1);
+          --text: #101618; --muted: #52605f; --teal: #00706c; --teal-deep: #005a57;
+          --teal-tint: rgba(0,143,138,.12); --warn: #8a5a06; --warn-tint: rgba(244,165,38,.18);
+          --teal-text: #005a57; --teal-ink: #ffffff; --code: #263133; --sunk: #8d999b;
+          color-scheme: light;
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0; background: var(--bg); color: var(--text);
+        font-family: var(--sans); font-size: 17px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: inherit; }
+      a:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
+      .mono { font-family: var(--mono); }
+      .muted { color: var(--muted); }
+      code { font-family: var(--mono); font-size: .86em; }
+
+      .wrap { width: 100%; max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+      /* ── hero ─────────────────────────────────────────────────── */
+      .hero { overflow-x: clip; }
+      .hero .wrap {
+        display: grid; grid-template-columns: minmax(0, 1fr) 480px; gap: 56px; align-items: center;
+        min-height: calc(100svh - 108px); padding-top: 56px; padding-bottom: 72px;
+      }
+      .hero .wrap > * { min-width: 0; }
+      .status {
+        display: inline-flex; align-items: center; gap: 8px; margin: 0 0 22px;
+        font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px 4px 10px; line-height: 1.5;
+      }
+      .status i { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex: none; }
+      h1 {
+        font-family: var(--display); font-weight: 700;
+        font-size: clamp(40px, 4.8vw, 62px); line-height: 1.04;
+        letter-spacing: -0.03em; margin: 0; max-width: 13ch; text-wrap: balance;
+      }
+      h1 em { font-style: normal; color: var(--teal); }
+      .lede { color: var(--muted); font-size: 18px; line-height: 1.55; margin: 20px 0 28px; max-width: 34em; }
+
+      .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+      .btn {
+        display: inline-flex; align-items: center; border-radius: 10px;
+        min-height: 46px; padding: 0 20px; font: 600 15px var(--sans); text-decoration: none;
+        border: 1px solid transparent; transition: filter .15s, border-color .15s;
+      }
+      .btn-primary { background: var(--teal); color: var(--teal-ink); }
+      .btn-primary:hover { filter: brightness(1.08); }
+      .btn-ghost { background: transparent; border-color: var(--line); color: var(--text); }
+      .btn-ghost:hover { border-color: var(--teal); }
+
+      /* the decision record: this page's signature */
+      .rec-wrap { position: relative; margin: 0; }
+      .rec-wrap::before {
+        content: ''; position: absolute; inset: -40px -30px; z-index: 0; pointer-events: none;
+        background: radial-gradient(closest-side, var(--teal-tint), transparent 75%); opacity: .55;
+      }
+      .rec {
+        position: relative; z-index: 1; background: var(--surface);
+        border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+        box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 24px 48px -24px rgba(0,0,0,.45);
+        font-size: 14px;
+      }
+      :root[data-theme='light'] .rec { box-shadow: 0 24px 48px -28px rgba(13,18,20,.22); }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme='dark']) .rec { box-shadow: 0 24px 48px -28px rgba(13,18,20,.22); }
+      }
+      .rec-head {
+        display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap;
+        gap: 4px 12px; padding: 15px 18px 13px; border-bottom: 1px solid var(--line);
+      }
+      .ttl { font-family: var(--display); font-weight: 600; font-size: 19px; letter-spacing: -0.01em; }
+      .rec-head .route { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+      .rec dl { margin: 0; padding: 4px 18px; }
+      .row {
+        display: flex; align-items: center; justify-content: space-between; gap: 6px 14px;
+        flex-wrap: wrap; padding: 9px 0; border-bottom: 1px dashed var(--line);
+      }
+      .row:last-child { border-bottom: 0; }
+      .row dt { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+      .row dd { margin: 0; text-align: right; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      .row dd.mono { font-size: 12.5px; display: block; }
+      .pill {
+        font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 6px;
+        background: var(--inset); color: var(--text); white-space: nowrap;
+      }
+      .pill.teal { background: var(--teal-tint); color: var(--teal-text); }
+      .cands { list-style: none; margin: 0; padding: 4px 0 10px; border-bottom: 1px dashed var(--line); }
+      .cands li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-family: var(--mono); font-size: 12.5px; }
+      .cands .id { color: var(--text); }
+      .cands .out .id { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--sunk); }
+      .cands .why { color: var(--muted); text-align: right; }
+      .cands .chosen .id, .cands .chosen .why { color: var(--teal-text); font-weight: 500; }
+      .cands-h { padding: 10px 0 2px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+      .example { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 10px 0 0; text-align: right; position: relative; z-index: 1; }
+
+      /* ── bands ────────────────────────────────────────────────── */
+      section.band { border-top: 1px solid var(--line); }
+      section.band .wrap { padding-top: 88px; padding-bottom: 88px; }
+      h2 {
+        font-family: var(--display); font-weight: 700;
+        font-size: clamp(28px, 3vw, 36px); line-height: 1.15; letter-spacing: -0.025em;
+        margin: 0 0 12px; text-wrap: balance;
+      }
+      .sub { color: var(--muted); margin: 0 0 32px; max-width: 640px; font-size: 17px; line-height: 1.6; }
+      .cell { min-width: 0; }
+      .cell h3 { font-family: var(--display); font-weight: 600; font-size: 19px; letter-spacing: -0.01em; margin: 8px 0 6px; }
+      .cell p { margin: 0; color: var(--muted); font-size: 15.5px; }
+      .cell .step { font-family: var(--mono); font-size: 13px; color: var(--teal-text); }
+      .codes { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+      .codes li { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--inset); color: var(--text); }
+
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; margin-top: 32px; }
+      .grid .cell p + p { margin-top: 10px; }
+
+      pre {
+        font-family: var(--mono); font-size: 13px; line-height: 1.75; color: var(--code);
+        background: var(--inset); border: 1px solid var(--line); border-radius: 10px;
+        margin: 0; padding: 14px 16px; overflow-x: auto; max-width: 760px;
+      }
+      pre .p { color: var(--muted); user-select: none; }
+      .after { margin: 12px 0 0; color: var(--muted); font-size: 15.5px; max-width: 680px; }
+      .after a, .sub a, .facts a, .cell a { color: var(--teal-text); text-underline-offset: 3px; }
+
+      ul.facts { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 10px; max-width: 700px; }
+      ul.facts li { position: relative; padding-left: 22px; }
+      ul.facts li::before {
+        content: ''; position: absolute; left: 2px; top: .62em; width: 8px; height: 8px;
+        border: 1.5px solid var(--teal); border-radius: 50%;
+      }
+
+      /* ── section scene: one lazy three.js canvas (src/scripts/scenes) ── */
+      figure.scene { margin: 0; }
+      .scene-box { position: relative; width: 100%; aspect-ratio: var(--ar); }
+      .scene-box img, .scene-box :global(canvas) { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .scene-box :global(canvas) { opacity: 0; transition: opacity .45s ease; }
+      .scene-box img { transition: opacity .45s ease; }
+      figure.scene.pending img, figure.scene.live img, figure.scene.rested img { opacity: 0; }
+      figure.scene.live :global(canvas), .scene-box :global(canvas.scene-rest) { opacity: 1; }
+      .scene-caption { margin: 8px 0 0; font: 12px var(--mono); color: var(--muted); }
+      /* The stations pinned beside their steps; the step at the viewport's centre picks the panel's
+         beat (loader.js). On a phone each step carries its own scene above its text. The panel
+         comes after the steps in the markup, so the copy reads first. */
+      .steps-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 56px; margin-top: 8px; }
+      .panel { grid-column: 1; grid-row: 1; position: sticky; top: max(24px, calc(50svh - 200px)); align-self: start; }
+      .step-list { grid-column: 2; grid-row: 1; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+      .step-list li { min-height: 58svh; display: flex; flex-direction: column; justify-content: center; }
+      .step-list li:first-child { min-height: 46svh; justify-content: flex-start; padding-top: 40px; }
+      .step-scene { display: none; }
+      :global(html.scene-steps) .step-list li { opacity: .5; transition: opacity .35s ease; }
+      :global(html.scene-steps) .step-list li.focus { opacity: 1; }
+
+      @media (min-width: 900px) {
+        ul.facts.cols { grid-auto-flow: row; }
+      }
+      @media (max-width: 899px) {
+        .hero .wrap { grid-template-columns: 1fr; gap: 44px; min-height: auto; padding-top: 40px; padding-bottom: 56px; }
+        section.band .wrap { padding-top: 64px; padding-bottom: 64px; }
+        .grid { grid-template-columns: 1fr; gap: 28px; }
+        .steps-layout { grid-template-columns: 1fr; gap: 0; }
+        .step-list { grid-column: 1; gap: 48px; }
+        .panel { display: none; }
+        .step-list li, .step-list li:first-child { min-height: 0; padding-top: 0; justify-content: flex-start; }
+        :global(html.scene-steps) .step-list li { opacity: 1; }
+        .step-scene { display: block; order: -1; margin-bottom: 16px; }
+      }
+      @media (max-width: 480px) {
+        .rec dl, .rec-head { padding-left: 14px; padding-right: 14px; }
+        .cands .why { font-size: 11.5px; }
+      }
+      /* Hero moment: .rec.playing is set by the inline script below for one ~2.4s pass. */
+      .rec.playing .cands li { opacity: 0; animation: sd-in 300ms ease-out forwards; animation-delay: calc(var(--i, 0) * 180ms); }
+      .rec.playing .cands li.out { animation: sd-out 600ms ease-out forwards; animation-delay: calc(var(--i, 0) * 180ms); }
+      .rec.playing .held dd, .rec.playing .claimed dd { opacity: 0; animation: sd-in 320ms ease-out forwards; }
+      .rec.playing .held dd { animation-delay: 1300ms; }
+      .rec.playing .claimed dd { animation-delay: 1800ms; }
+      @keyframes sd-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+      @keyframes sd-out { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; animation: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <Frame product="superdispatch" cta={{ label: 'Read the README', href: README }}>
+    <main>
+      <section class="hero">
+        <div class="wrap">
+          <div>
+            <p class="status"><i aria-hidden="true"></i>Early · proven on staging · production being set up</p>
+            <h1>Which agent takes the card, <em>and why.</em></h1>
+            <p class="lede">
+              SuperDispatch is the scheduler between SuperPipeline and AgentPod. When a card is
+              ready, it places it on an agent by capability, load and history, and records every
+              decision with its reasons. An agent outside it keeps working by pull.
+            </p>
+            <div class="cta">
+              <a class="btn btn-primary" href={README}>Read the README</a>
+              <a class="btn btn-ghost" href={FORGE}>Source on the forge</a>
+            </div>
+          </div>
+
+          <figure class="rec-wrap" aria-label="An example placement decision">
+            <div class="rec">
+              <div class="rec-head">
+                <div class="ttl">A placement decision</div>
+                <span class="route">GET /v1/decisions</span>
+              </div>
+              <dl>
+                <div class="row"><dt>card</dt><dd class="mono">brd_01 / crd_7f3a · <span class="muted">review</span></dd></div>
+                <div class="row"><dt>policy</dt><dd class="mono">{POLICY}</dd></div>
+                <div class="row"><dt>tier</dt><dd><span class="pill">winner · step 1</span></dd></div>
+              </dl>
+              <dl>
+                <div class="cands-h">candidates</div>
+                <ul class="cands">
+                  {candidates.map((c) => (
+                    <li class={c.chosen ? 'chosen' : c.reason ? 'out' : ''}>
+                      <span class="id">{c.id}</span>
+                      <span class="why">{c.reason ? `${c.reason}${c.note ? ` · ${c.note}` : ''}` : `score ${c.score}${c.chosen ? ' · chosen' : ''}`}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div class="row held"><dt>hold</dt><dd><span class="pill teal">agt_ada · 60 s</span></dd></div>
+                <div class="row claimed"><dt>outcome</dt><dd><span class="pill teal">claimed</span></dd></div>
+              </dl>
+            </div>
+            <figcaption class="example">Example decision. The fields are real; the values are made up.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="band" aria-labelledby="how">
+        <div class="wrap">
+          <h2 id="how">How it places a card</h2>
+          <p class="sub">
+            It reads SuperPipeline's boards, AgentPod's roster and each agent's load, through their
+            public APIs, and owns none of their data. On the boards a person opts in, it sweeps
+            every 30 seconds, and at once when the event relay says a card is ready.
+          </p>
+          <div class="steps-layout">
+            <ol class="step-list">
+              {[
+                { h: 'A card is ready', p: <>A card waits in a capability lane on a SuperPipeline board, and nobody holds it. Boards take turns: one card from each board a round, the longest-waiting first, so a busy board cannot take every free agent.</> },
+                { h: 'Filter, with a reason each', p: <>Every agent of the workspace is checked: on the board's roster, has the capability, healthy, idle, not holding another card, not a recent no-show. Each one turned away is recorded with the filter that turned it away, like <code>not-idle</code> or <code>capability-missing</code>.</> },
+                { h: 'Score the rest', p: <>The agents left are ranked by their record at this stage (finished runs and verdicts, when SuperWitness is there to ask), then by how often they claimed holds on this board, then by who has waited longest for work.</> },
+                { h: 'Hold it for one', p: <>SuperDispatch names the best agent, and SuperPipeline holds the card for it for a short window, 60 seconds by default. A hold outranks priority, and it expires on its own. SuperDispatch never hands a card to an agent.</> },
+                { h: 'The agent claims it', p: <>The chosen agent claims the card as it always would, and the decision records the outcome. If the hold lapses, the next best gets a shorter hold, then any matching agent may claim by pull, as without SuperDispatch.</> },
+              ].map((s, i) => (
+                <li class="cell" data-steps-for="placement-panel" data-beat={i}>
+                  <figure class="scene step-scene" data-scene="placement" data-beat={i}>
+                    <div class="scene-box" style="--ar: 3 / 2" aria-hidden="true">
+                      <img data-still alt="" width="560" height="373" loading="lazy" decoding="async" />
+                      <noscript><img src={`/scenes/placement/${i}-noon.webp`} alt="" width="560" height="373" loading="lazy" decoding="async" /></noscript>
+                    </div>
+                  </figure>
+                  <span class="step">{i + 1}</span>
+                  <h3>{s.h}</h3>
+                  <p>{s.p}</p>
+                </li>
+              ))}
+            </ol>
+            <figure class="scene panel" id="placement-panel" data-scene="placement" data-beat="0">
+              <div class="scene-box" style="--ar: 3 / 2" aria-hidden="true">
+                <img data-still alt="" width="560" height="373" loading="lazy" decoding="async" />
+                <noscript><img src="/scenes/placement/0-noon.webp" alt="" width="560" height="373" loading="lazy" decoding="async" /></noscript>
+              </div>
+              <figcaption class="scene-caption">At the front, a SuperPipeline board and its ready card; at the back, five agents' stations.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" aria-labelledby="record">
+        <div class="wrap">
+          <h2 id="record">Every decision is a record</h2>
+          <p class="sub">
+            The card, the policy, the tier, every candidate with each filter's result, the score
+            that ranked the ones left, the hold and what became of it. Read them on the operator
+            API at <code>/v1/decisions</code>. These are the reasons a candidate can be turned
+            away, read from the code that applies them:
+          </p>
+          <ul class="codes" aria-label="Rejection reasons">
+            {REASONS.map((r) => <li>{r}</li>)}
+          </ul>
+          <div class="grid">
+            <div class="cell">
+              <h3>Advice, never a change</h3>
+              <p>
+                From its own decisions it suggests roster changes, such as another agent for a lane
+                with one candidate, and supply changes: a model, a station, a board's concurrency.
+                They stay advice for a person to act on in AgentPod or SuperPipeline. It never edits
+                a roster or a station.
+              </p>
+            </div>
+            <div class="cell">
+              <h3>Nothing requires it</h3>
+              <p>
+                SuperPipeline without SuperDispatch is the same board, and AgentPod's roster works
+                without it. An agent outside it keeps working by pull. When it is slow or absent,
+                the cost is the hold's window, never the claim.
+              </p>
+            </div>
+            <div class="cell">
+              <h3>Learning, later and in shadow</h3>
+              <p>
+                Each settled decision is a labelled example (<code>/v1/dataset</code>). A model
+                trained on them is off by default; in shadow it only records what it would have
+                chosen, and it places nothing until it beats the formula on real decisions.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" aria-labelledby="run">
+        <div class="wrap">
+          <h2 id="run">Run it</h2>
+          <p class="sub">
+            There is no release yet. It is a Bun service that runs from source as a plain process
+            beside AgentPod, and it needs a SuperPipeline, an AgentPod and the organization plane
+            (Accounts) to place anything.
+          </p>
+          <pre aria-label="Run it from source"><code>{RUN.map((line, i) => (<>{i === 0 || i === 1 || i === 4 ? <span class="p">$ </span> : ''}{line}{'\n'}</>))}</code></pre>
+          <p class="after">
+            Every setting, what it needs from each product, and the operator API are in the
+            <a href={README}>README</a>. The decision that gives SuperDispatch this job, and what
+            it may never do, is in the <a href={CHARTER}>charter</a>.
+          </p>
+        </div>
+      </section>
+
+      <section class="band" aria-labelledby="today">
+        <div class="wrap">
+          <h2 id="today">Where it stands today</h2>
+          <ul class="facts">
+            <li>It is early. It places cards on staging, where it has been proven end to end; production is being set up now.</li>
+            <li>It places agents on AgentPod's roster by default. Agents that claim with their own token can be included once they report load and health; until then they keep working by pull.</li>
+            <li>A workspace's dispatch policy in Accounts can narrow who may take a card, but a pull ignores it: SuperPipeline does not enforce it on claim yet.</li>
+            <li>Decisions are not yet published as events through the event relay, and suggestions do not reach chat yet: read both on the operator API.</li>
+            <li>Apache-2.0. The source is on <a href={REPO}>GitHub</a> and on the <a href={FORGE}>forge</a>.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+    <script>
+      import '../scripts/scenes/loader.js';
+    </script>
+    </Frame>
+
+    <script is:inline>
+      (() => {
+        const rec = document.querySelector('.rec');
+        if (!rec || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        rec.querySelectorAll('.cands li').forEach((li, i) => li.style.setProperty('--i', i));
+        const play = () => {
+          rec.classList.add('playing');
+          setTimeout(() => rec.classList.remove('playing'), 2400);
+        };
+        const io = new IntersectionObserver((es) => {
+          if (es.some((e) => e.isIntersecting)) { io.disconnect(); setTimeout(play, 600); }
+        });
+        io.observe(rec);
+      })();
+    </script>
+  </body>
+</html>

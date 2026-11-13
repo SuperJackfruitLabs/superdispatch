@@ -1,0 +1,16 @@
+// superdispatch.dev: a Worker with static assets and no script.
+//
+// Not a classic Pages project: wrangler no longer creates those. The custom domains are declared
+// here, so `wrangler deploy` attaches them; no dashboard step. Deployed by
+// scripts/deploy-sites.sh, from .github/workflows/sites.yml on merge to main.
+{
+  "name": "superdispatch-site",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist", "not_found_handling": "404-page" },
+  "routes": [
+    { "pattern": "superdispatch.dev", "custom_domain": true },
+    { "pattern": "www.superdispatch.dev", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "preview_urls": false
+}

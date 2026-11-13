@@ -33,6 +33,8 @@ records why. The charter decision that sets its scope is
   pass over a board (read, settle, place, reserve, record) and the sweep, `src/routes` the HTTP
   surface.
 - `deploy/staging/`: the staging deploy, run on the staging host by its forced-command key.
+- `landing/`: superdispatch.dev, an Astro site outside the Bun workspace with its own lockfile
+  (`landing/README.md`). It deploys from the GitHub mirror on merge to main.
 
 ## Checks
 

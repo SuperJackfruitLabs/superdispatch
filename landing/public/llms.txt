@@ -1,0 +1,21 @@
+# SuperDispatch
+
+> The scheduler for SuperPipeline and AgentPod: when a card is ready, it decides which agent should take it, and records why.
+
+SuperDispatch places SuperPipeline cards onto AgentPod agents by capability, load and history. For each ready card it filters every candidate (each rejection carries a reason code), scores the ones left and names a preferred agent; SuperPipeline then holds the card for that agent for a short reservation that expires on its own. Every decision is recorded with every candidate and the reason for each. Roster and supply changes it finds are advice for a person to act on; it never edits a roster or a station. Nothing requires it: an agent outside it keeps working by pull. It is early: proven on staging, with production being set up. It is an Apache-2.0 Bun service with no release yet.
+
+## Docs
+
+- [README](https://github.com/SuperJackfruitLabs/superdispatch#readme): what it does, every setting, the operator API
+- [Charter decision](https://github.com/SuperJackfruitLabs/charter/blob/main/decisions/2026-11-12-superdispatch-owns-the-scheduler.md): why SuperDispatch owns the scheduler, and what it may not do
+
+## Links
+
+- [Home](https://superdispatch.dev)
+- [Source repository](https://github.com/SuperJackfruitLabs/superdispatch)
+- [Source on the forge](https://forge.superjackfruit.com/SuperJackfruitLabs/superdispatch)
+
+## Optional
+
+- [Super Jackfruit Labs](https://superjackfruit.com): the company behind SuperDispatch
+- [Super Jackfruit Labs llms.txt](https://superjackfruit.com/llms.txt): all products in the family
