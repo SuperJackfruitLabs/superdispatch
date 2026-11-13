@@ -71,7 +71,8 @@ scope. Runs carry `stage_key` only from a SuperPipeline that reports it
 (`SUPERWITNESS_REPORT_STAGE`). Without it, scoring leaves the stage record out.
 
 **The event relay** (optional). A subscriber for `evt.*.superpipeline.>` delivering to
-`/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET`. A `card.ready` places its card at
+`/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET` ([how the relay delivers and
+signs](https://treaty.superjackfruit.com/relay/#delivery-and-retries)). A [`card.ready`](https://treaty.superjackfruit.com/events/card-ready-v1/) places its card at
 once, alone, with the board's cached roster; any other event looks at its board two seconds later.
 Without the relay the sweep alone places cards, and most are lost to pull before it comes round.
 

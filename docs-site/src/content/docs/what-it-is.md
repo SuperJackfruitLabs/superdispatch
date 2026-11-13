@@ -15,7 +15,7 @@ capability, one stuck agent stalled the lane.
 ## What it does
 
 On each board the operator [opts in](/run/opting-a-board-in/), every 30 seconds and as soon as the
-event relay delivers one of the board's events, SuperDispatch:
+[event relay](https://treaty.superjackfruit.com/relay/) delivers one of the board's events, SuperDispatch:
 
 1. **reads the board** from SuperPipeline and settles what became of each card it held;
 2. **queues the ready cards** and takes them fairly across boards, longest-waiting first;
@@ -76,3 +76,8 @@ A Bun service in TypeScript, Apache-2.0 licensed, with a SQLite store. Placement
 functions over plain inputs and does no I/O; the loop reads the other products and hands placement
 the facts. The source is at
 [github.com/SuperJackfruitLabs/superdispatch](https://github.com/SuperJackfruitLabs/superdispatch).
+
+**Contracts: [Treaty](https://treaty.superjackfruit.com).** The events SuperDispatch receives
+([`card.ready`](https://treaty.superjackfruit.com/events/card-ready-v1/) and the rest of the
+[event catalogue](https://treaty.superjackfruit.com/events/)), the envelope they arrive in and the
+relay's signed delivery are Treaty's.

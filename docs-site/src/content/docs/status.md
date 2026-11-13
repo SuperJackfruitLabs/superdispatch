@@ -25,8 +25,8 @@ SuperPipeline enforces it, policy here is advice like the rest of SuperDispatch.
 [The dispatch policy](/placement/policy/).
 
 **Decisions are not published as events.** The charter decision says every decision is published
-through treaty's relay, so SuperWitness can audit it and chat can show it. That needs a decision
-event in treaty's catalogue first. Until then, read decisions on the
+through [Treaty's relay](https://treaty.superjackfruit.com/relay/), so SuperWitness can audit it and chat can show it. That needs a decision
+event in [Treaty's catalogue](https://treaty.superjackfruit.com/events/) first. Until then, read decisions on the
 [operator API](/run/operator-api/).
 
 **Suggestions do not reach chat.** Roster suggestions and supply proposals are kept in
