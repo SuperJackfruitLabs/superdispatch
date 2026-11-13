@@ -65,6 +65,10 @@ describe("main", () => {
       expect(health).toBe(200);
       expect(code).toBe(0);
       expect(stdout).toContain(`listening on :${port}`);
+      // The settings a deploy checks for, on the line it reads.
+      expect(stdout).toContain(
+        "candidates roster, policy off, learned routing off",
+      );
     }, 15_000);
   }
 });

@@ -1271,6 +1271,34 @@ describe("the runner", () => {
     expect(s.queue).toEqual([]);
   });
 
+  test("logs the first sweep once, with no board opted in too", async () => {
+    const lines: string[] = [];
+    const loop: Loop = {
+      ...idleLoop,
+      suggest: () => ({ opened: 0, updated: 0, resolved: 0 }),
+      passAll: async () => ({ boards: 0, failedBoards: 0 }),
+      passBoard: async (boardId) => ({
+        boardId,
+        settled: 0,
+        decided: 0,
+        reserved: 0,
+        deferred: 0,
+      }),
+    };
+    const s = scheduler();
+    const runner = startRunner(loop, {
+      intervalMs: 1000,
+      schedule: s.schedule,
+      cancel: s.cancel,
+      log: (line) => lines.push(line),
+    });
+    await settle();
+    await s.fire();
+    await s.fire();
+    runner.stop();
+    expect(lines).toEqual(["loop: first sweep, 0 boards opted in, 0 unread"]);
+  });
+
   test("nudges coalesce into one pass per board after the delay, never during another pass", async () => {
     const order: string[] = [];
     let release: () => void = () => {};
