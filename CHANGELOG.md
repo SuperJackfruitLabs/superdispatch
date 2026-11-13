@@ -1,9 +1,20 @@
 # Changelog
 
-SuperDispatch has no production deploy yet: a release publishes its notes on GitHub.
-
 ## Unreleased
 
+## v0.0.1 — 2026-11-13
+
+- A production deploy: a `vX.Y.Z` tag deploys the tag to the production host through its
+  forced-command key (`deploy/production/release.sh`). It takes an online copy of the store,
+  builds the tag's image, recreates the service, and checks `/healthz`, a token from Accounts with
+  the service's own credential, the hub, and the loop's first sweep; a release that fails a check
+  is replaced by the one that ran before, with the store's copy when the schema moved.
+  `deploy/production/smoke.sh` repeats the checks at any time, and `rollback.sh` puts back the
+  release before the deployed one. No board is opted in by the deploy, and the wider candidate
+  set, the dispatch policy and learned routing stay off until the operator sets them.
+- The start line names the candidate set and the dispatch policy beside learned routing, and the
+  loop logs its first sweep once (`loop: first sweep, <n> boards opted in, <n> unread`), so a
+  deploy can see it running with no board opted in.
 - Supply proposals: advice for a person when a lane goes unplaced for want of supply, kept with
   the roster suggestions and listed by kind (`GET /v1/suggestions?kind=`). `change-model` (an
   agent turned away only for its model), `move-to-host` (another station in AgentPod's registry
@@ -91,4 +102,4 @@ lastSeenAt, source}`; health and idle (`inFlight < capacity`) are read from it, 
   sweep refreshes. An agent SuperPipeline reports at its board's concurrency is waited for
   (`waiting-on-load`) even while its station reads idle.
 - Releases run on the suite's shared release workflow: a `vX.Y.Z` tag checks that forge CI passed
-  for the tag's commit and publishes release notes on GitHub.
+  for the tag's commit, deploys it to production and publishes release notes on GitHub.
