@@ -7,6 +7,8 @@ status: wet paint
 
 import BentoHome from '@superjackfruit/docs-theme/components/BentoHome.astro';
 import FlowSteps from '@superjackfruit/docs-theme/components/FlowSteps.astro';
+import DecisionReplay from '@superjackfruit/docs-theme/components/DecisionReplay.astro';
+import recorded from '../../data/decision-pld_1185cfbd508dfcf516067e43.json';
 import WetPaint from '@superjackfruit/docs-theme/components/WetPaint.astro';
 import JackAside from '@superjackfruit/docs-theme/components/JackAside.astro';
 
@@ -18,13 +20,20 @@ import JackAside from '@superjackfruit/docs-theme/components/JackAside.astro';
     { text: 'What it is', link: '/what-it-is/', variant: 'secondary' },
   ]}
   quickstart={{
-    label: 'Quick start: opt a board in',
-    command: 'curl -X PUT -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards/brd_…',
-    note: 'No body. Put your board id where brd_… is, and the operator token in $TOKEN. Nothing is placed until a board is opted in.',
+    label: 'Quick start: replay a real decision',
   }}
+  agent={{ task: 'Then explain how SuperDispatch would place a card on my board, and list what I need before I opt a board in.' }}
   ask={{ examples: ["Why wasn't my agent chosen?", 'Does it ever claim a card itself?', 'What happens when it is down?', 'Will it make me coffee?'] }}
-  flowTitle="How a card gets placed (drag the slider; it waits for you)"
+  flowTitle="How a card gets placed (step through it; it waits for you)"
 >
+  <div slot="quickstart">
+    <DecisionReplay
+      decision={recorded}
+      label="Replay of decision pld_1185cfbd508dfcf516067e43"
+      source="Recorded by SuperDispatch on staging on 13 November 2026, in the shape its operator API returns. The ids are the record's own; it holds no token or credential."
+    />
+    <p style="margin: 0; font-size: 0.85rem;">Nothing to install. To place cards on your own board, start with <a href="/start/what-you-need/">What you need</a>.</p>
+  </div>
   <FlowSteps
     label="Placement step"
     steps={[

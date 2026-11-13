@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.0",
-    "@superjackfruit/docs-theme": "file:vendor/superjackfruit-docs-theme-0.0.1.tgz",
+    "@superjackfruit/docs-theme": "file:vendor/superjackfruit-docs-theme-0.0.2.tgz",
     "@superjackfruit/frontdoor": "file:vendor/superjackfruit-frontdoor-0.0.15.tgz",
     "@superjackfruit/vibekit": "file:vendor/superjackfruit-vibekit-0.0.16.tgz",
     "astro": "^7.3.2",
