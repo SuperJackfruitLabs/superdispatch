@@ -1,0 +1,171 @@
+{
+  "decision": {
+    "id": "pld_1185cfbd508dfcf516067e43",
+    "boardId": "brd_ceb6d1c7c02a4a6b",
+    "cardId": "card_c5ccd3c7af7a48bf",
+    "stageKey": "gather",
+    "policy": "idle-stage-success-lru@3",
+    "chosen": "agt_5e2ae657ff78483c",
+    "reason": null,
+    "tier": {
+      "name": "winner",
+      "step": 1
+    },
+    "requires": {
+      "all": [
+        "research"
+      ],
+      "any": []
+    },
+    "candidates": [
+      {
+        "candidate": {
+          "agentId": "agt_e6e1c996b02f4077",
+          "principalId": "prn_89f06b68a0fa07724033",
+          "stationId": "station_046aa0c3-946b-47bd-add4-bb1826715edf",
+          "source": "roster"
+        },
+        "filters": [
+          {
+            "filter": "roster",
+            "passed": true
+          },
+          {
+            "filter": "capability",
+            "passed": true
+          },
+          {
+            "filter": "grant",
+            "passed": true
+          },
+          {
+            "filter": "claimable",
+            "passed": true
+          },
+          {
+            "filter": "policy",
+            "passed": true
+          },
+          {
+            "filter": "health",
+            "passed": true
+          },
+          {
+            "filter": "capacity",
+            "passed": true
+          },
+          {
+            "filter": "idle",
+            "passed": true
+          },
+          {
+            "filter": "held",
+            "passed": false,
+            "reason": "holding-another"
+          },
+          {
+            "filter": "noShow",
+            "passed": true
+          },
+          {
+            "filter": "passedOver",
+            "passed": true
+          }
+        ],
+        "score": null,
+        "stageHistory": {
+          "runs": 1,
+          "succeeded": 0,
+          "verdicts": 0,
+          "passes": 0,
+          "weight": 0.961456091858317,
+          "outcomeRate": 0.5,
+          "verdictRate": 0.5,
+          "stageRecord": 0.5
+        }
+      },
+      {
+        "candidate": {
+          "agentId": "agt_5e2ae657ff78483c",
+          "principalId": "prn_9333da9ad99e362c909f",
+          "stationId": "station_a4e90aa2-fbfa-46d3-b07f-2a6cdb0e8b53",
+          "source": "roster"
+        },
+        "filters": [
+          {
+            "filter": "roster",
+            "passed": true
+          },
+          {
+            "filter": "capability",
+            "passed": true
+          },
+          {
+            "filter": "grant",
+            "passed": true
+          },
+          {
+            "filter": "claimable",
+            "passed": true
+          },
+          {
+            "filter": "policy",
+            "passed": true
+          },
+          {
+            "filter": "health",
+            "passed": true
+          },
+          {
+            "filter": "capacity",
+            "passed": true
+          },
+          {
+            "filter": "idle",
+            "passed": true
+          },
+          {
+            "filter": "held",
+            "passed": true
+          },
+          {
+            "filter": "noShow",
+            "passed": true
+          },
+          {
+            "filter": "passedOver",
+            "passed": true
+          }
+        ],
+        "score": {
+          "total": 1,
+          "terms": {
+            "stageRecord": 0.5,
+            "successRate": 0.5,
+            "sinceLastDispatchS": 35997
+          }
+        },
+        "stageHistory": {
+          "runs": 0,
+          "succeeded": 0,
+          "verdicts": 0,
+          "passes": 0,
+          "weight": 0,
+          "outcomeRate": 0.5,
+          "verdictRate": 0.5,
+          "stageRecord": 0.5
+        }
+      }
+    ],
+    "reservation": {
+      "reservedUntil": "2026-11-13T05:52:33.993Z"
+    },
+    "reservationRefused": null,
+    "outcome": {
+      "status": "claimed",
+      "by": "agt_5e2ae657ff78483c",
+      "at": "2026-11-13T05:51:44.280Z"
+    },
+    "createdAt": "2026-11-13T05:51:33.637Z"
+  }
+}
