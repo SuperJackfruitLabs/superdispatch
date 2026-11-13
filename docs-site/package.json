@@ -1,0 +1,18 @@
+{
+  "name": "@superdispatch/docs",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --port 4517",
+    "build": "node scripts/check-claims.mjs && astro build",
+    "preview": "astro preview --port 4517",
+    "check": "astro check",
+    "check:claims": "node scripts/check-claims.mjs"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.0",
+    "astro": "^7.3.2",
+    "starlight-llms-txt": "^0.12.0"
+  }
+}
