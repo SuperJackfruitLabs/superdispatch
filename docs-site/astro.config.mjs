@@ -28,7 +28,7 @@ export default defineConfig({
               'with every candidate and the reason for each. Roster suggestions and supply proposals are ' +
               'advice for a person; it never edits a roster or a station. Nothing requires it: without ' +
               'it, agents claim by pull as before. It is an early, Apache-2.0 Bun service; v0.0.1 runs ' +
-              'in production with no board opted in yet.',
+              'in production on the boards the operator has opted in.',
           },
         }),
       ],

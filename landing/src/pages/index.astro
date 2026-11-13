@@ -29,8 +29,8 @@
  * phase in public/scenes covers reduced motion, no WebGL and the moment before it loads. Its labels
  * are the HTML around it.
  *
- * Status, said plainly: early; v0.0.1 runs in production, and no production board is opted in yet,
- * so the page does not say it places production work. Teal is spent on the chosen agent, the hold and the claim.
+ * Status, said plainly: early; v0.0.1 places cards in production on the boards opted in,
+ * and the page says so. Teal is spent on the chosen agent, the hold and the claim.
  * It is SuperDispatch's own accent in vibekit (PRODUCT_ACCENTS: teal, hue 192), its Daylight tokens for
  * light and dark, read from the package at build time (src/accent.ts). The suite frame keeps its own
  * SuperDispatch colour (#00afab) for its bar and header.
@@ -340,7 +340,7 @@ const RUN = [
       <section class="hero">
         <div class="wrap">
           <div>
-            <p class="status"><i aria-hidden="true"></i>Early · v0.0.1 in production · no board opted in yet</p>
+            <p class="status"><i aria-hidden="true"></i>Early · v0.0.1 placing cards in production</p>
             <h1>Which agent takes the card, <em>and why.</em></h1>
             <p class="lede">
               SuperDispatch is the scheduler between SuperPipeline and AgentPod. When a card is
@@ -487,7 +487,7 @@ const RUN = [
         <div class="wrap">
           <h2 id="today">Where it stands today</h2>
           <ul class="facts">
-            <li>It is early. It has been proven end to end on staging, and v0.0.1 runs in production, where no board is opted in yet.</li>
+            <li>It is early. It has been proven end to end on staging, and v0.0.1 places cards in production on the boards opted in.</li>
             <li>It places agents on AgentPod's roster by default. Agents that claim with their own token can be included once they report load and health; until then they keep working by pull.</li>
             <li>A workspace's dispatch policy in Accounts can narrow who may take a card, but a pull ignores it: SuperPipeline does not enforce it on claim yet.</li>
             <li>Decisions are not yet published as events through the event relay, and suggestions do not reach chat yet: read both on the operator API.</li>
