@@ -3,8 +3,8 @@
  * superdispatch.dev — the public page.
  *
  * One page, no framework; the suite frame owns the header, footer and theme toggle. Its job is to
- * explain the product to somebody who typed the domain, and then send them to the README or the
- * source. There is no app to sign in to and no release to download yet, so the page offers neither.
+ * explain the product to somebody who typed the domain, and then send them to the docs
+ * (docs.superdispatch.dev) or the source. There is no app to sign in to and no release to download yet, so the page offers neither.
  *
  * This directory is deliberately outside the Bun workspace and has its own npm lockfile: nothing
  * in `apps/` shares a dependency tree with it, and `bun install` never looks in here.
@@ -31,8 +31,12 @@
  *
  * Status, said plainly: early; v0.0.1 runs in production, and no production board is opted in yet,
  * so the page does not say it places production work. Teal is spent on the chosen agent, the hold and the claim.
+ * It is SuperDispatch's own accent in vibekit (PRODUCT_ACCENTS: teal, hue 192), its Daylight tokens for
+ * light and dark, read from the package at build time (src/accent.ts). The suite frame keeps its own
+ * SuperDispatch colour (#00afab) for its bar and header.
  */
 import ShareMeta from '../components/ShareMeta.astro';
+import { productAccent } from '../accent';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import SuiteHead from '@superjackfruit/frontdoor/components/SuiteHead.astro';
@@ -41,8 +45,15 @@ import Frame from '@superjackfruit/frontdoor/components/Frame.astro';
 const SITE = 'https://superdispatch.dev';
 const REPO = 'https://github.com/SuperJackfruitLabs/superdispatch';
 const FORGE = 'https://forge.superjackfruit.com/SuperJackfruitLabs/superdispatch';
-const README = `${REPO}#readme`;
+const DOCS = 'https://docs.superdispatch.dev';
 const CHARTER = 'https://github.com/SuperJackfruitLabs/charter/blob/main/decisions/2026-11-12-superdispatch-owns-the-scheduler.md';
+// vibekit's teal: --teal is the accent, --teal-text body-size text, --teal-tint its pale ground,
+// --teal-ink text on the accent. The light set also answers the system when nothing is chosen.
+const { light: AL, dark: AD } = productAccent('superdispatch');
+const vars = (t: typeof AL) => `--teal: ${t.accent}; --teal-text: ${t.text}; --teal-tint: ${t.wash}; --teal-ink: ${t.fg};`;
+const ACCENT_CSS = `:root { ${vars(AD)} }
+:root[data-theme='light'] { ${vars(AL)} }
+@media (prefers-color-scheme: light) { :root:not([data-theme='dark']) { ${vars(AL)} } }`;
 const TITLE = 'SuperDispatch — which agent takes the card, and why';
 const DESCRIPTION =
   'The scheduler for SuperPipeline and AgentPod: it places each ready card on an agent by capability, load and history, and records every decision with its reasons. Early. Apache-2.0.';
@@ -106,18 +117,20 @@ const RUN = [
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
     />
+    <style is:inline set:html={ACCENT_CSS}></style>
     <style>
-      /* Contrast (WCAG 2.x), measured on the grounds they sit on:
-           dark   teal #3fd6cd on #0d1214 10.4:1 · on the teal pill 7.2:1 · muted #8c979c 5.9:1 on surface
-                  button text #06201f on #3fd6cd 9.6:1 · warn #f4a526 on its pill 6.5:1
-           light  teal #00706c on #f6f8f7 5.6:1 (headline, links) · teal-text #005a57 on the teal
-                  pill 6.8:1 · button text #ffffff on #00706c 5.8:1 · muted #52605f 6.3:1
-         Light-theme teal is the deep teal because #00afab on a light ground is 2.6:1. */
+      /* Contrast (WCAG 2.x), measured on the grounds they sit on, with vibekit 0.0.15's Daylight teal:
+           dark   teal #00a39f on #0d1214 6.1:1, on surface #141b1e 5.6:1 · teal-text #00a8a4 on
+                  surface 5.9:1, on the teal pill 4.6:1 · button text #17162a on teal 5.7:1 ·
+                  muted #8c979c 5.9:1 on surface · warn #f4a526 on its pill 6.5:1
+           light  teal #007f7c on #f6f8f7 4.6:1 (headline) · teal-text #007a77 on #f6f8f7 4.9:1, on
+                  the pill 4.6:1, on #ecf1f0 4.5:1 · button text #fff8ee on teal 4.6:1 · muted #52605f 6.3:1
+         The teal tokens come from vibekit (ACCENT_CSS above); only the grounds are this page's. */
       :root {
         --bg: #0d1214; --surface: #141b1e; --inset: #080c0d; --line: rgba(255,255,255,.08);
-        --text: #e7eeee; --muted: #8c979c; --teal: #3fd6cd; --teal-deep: #00afab;
-        --teal-tint: rgba(63,214,205,.14); --warn: #f4a526; --warn-tint: rgba(244,165,38,.15);
-        --teal-text: #3fd6cd; --teal-ink: #06201f; --code: #c9d3d6; --sunk: #6f7a7f;
+        --text: #e7eeee; --muted: #8c979c;
+        --warn: #f4a526; --warn-tint: rgba(244,165,38,.15);
+        --code: #c9d3d6; --sunk: #6f7a7f;
         --display: 'Space Grotesk', 'IBM Plex Sans', system-ui, sans-serif; --sans: 'IBM Plex Sans', system-ui, sans-serif;
         --mono: 'IBM Plex Mono', ui-monospace, monospace;
         color-scheme: dark light;
@@ -126,18 +139,18 @@ const RUN = [
          visitor has not chosen. */
       :root[data-theme='light'] {
         --bg: #f6f8f7; --surface: #ffffff; --inset: #ecf1f0; --line: rgba(13,18,20,.1);
-        --text: #101618; --muted: #52605f; --teal: #00706c; --teal-deep: #005a57;
-        --teal-tint: rgba(0,143,138,.12); --warn: #8a5a06; --warn-tint: rgba(244,165,38,.18);
-        --teal-text: #005a57; --teal-ink: #ffffff; --code: #263133; --sunk: #8d999b;
+        --text: #101618; --muted: #52605f;
+        --warn: #8a5a06; --warn-tint: rgba(244,165,38,.18);
+        --code: #263133; --sunk: #8d999b;
         color-scheme: light;
       }
       :root[data-theme='dark'] { color-scheme: dark; }
       @media (prefers-color-scheme: light) {
         :root:not([data-theme='dark']) {
           --bg: #f6f8f7; --surface: #ffffff; --inset: #ecf1f0; --line: rgba(13,18,20,.1);
-          --text: #101618; --muted: #52605f; --teal: #00706c; --teal-deep: #005a57;
-          --teal-tint: rgba(0,143,138,.12); --warn: #8a5a06; --warn-tint: rgba(244,165,38,.18);
-          --teal-text: #005a57; --teal-ink: #ffffff; --code: #263133; --sunk: #8d999b;
+          --text: #101618; --muted: #52605f;
+          --warn: #8a5a06; --warn-tint: rgba(244,165,38,.18);
+          --code: #263133; --sunk: #8d999b;
           color-scheme: light;
         }
       }
@@ -322,7 +335,7 @@ const RUN = [
     </style>
   </head>
   <body>
-    <Frame product="superdispatch" cta={{ label: 'Read the README', href: README }}>
+    <Frame product="superdispatch" cta={{ label: 'Read the docs', href: DOCS }}>
     <main>
       <section class="hero">
         <div class="wrap">
@@ -335,7 +348,7 @@ const RUN = [
               decision with its reasons. An agent outside it keeps working by pull.
             </p>
             <div class="cta">
-              <a class="btn btn-primary" href={README}>Read the README</a>
+              <a class="btn btn-primary" href={DOCS}>Read the docs</a>
               <a class="btn btn-ghost" href={FORGE}>Source on the forge</a>
             </div>
           </div>
@@ -464,7 +477,7 @@ const RUN = [
           <pre aria-label="Run it from source"><code>{RUN.map((line, i) => (<>{i === 0 || i === 1 || i === 4 ? <span class="p">$ </span> : ''}{line}{'\n'}</>))}</code></pre>
           <p class="after">
             Every setting, what it needs from each product, and the operator API are in the
-            <a href={README}>README</a>. The decision that gives SuperDispatch this job, and what
+            <a href={DOCS}>docs</a>. The decision that gives SuperDispatch this job, and what
             it may never do, is in the <a href={CHARTER}>charter</a>.
           </p>
         </div>
