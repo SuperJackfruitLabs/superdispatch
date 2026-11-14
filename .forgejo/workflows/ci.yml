@@ -11,17 +11,13 @@ permissions:
   contents: read
 
 jobs:
-  # Which parts changed. A pull request or push that only touches landing/ or docs-site/ runs just
-  # that site's build; anything else, a workflow, or any other trigger runs everything. The landing
-  # reads the placement source at build time, and the docs check their claims against the
-  # service's source, so a change there builds the sites too.
+  # Only a pull request whose every changed path is a root README or lives under docs/ or
+  # docs-site/ is docs-only. Unknown diffs and every other trigger take the full route.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      app: ${{ steps.plan.outputs.app }}
-      landing: ${{ steps.plan.outputs.landing }}
-      docs: ${{ steps.plan.outputs.docs }}
+      docs_only: ${{ steps.plan.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,53 +25,13 @@ jobs:
           fetch-depth: 0
       - id: plan
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          app=true landing=true docs=true
-          if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ] && files=$(git diff --name-only "$BASE" HEAD); then
-            app=false landing=false docs=false
-            while IFS= read -r f; do
-              case "$f" in
-                '') ;;
-                landing/*) landing=true ;;
-                docs-site/*) docs=true ;;
-                .forgejo/*|.github/workflows/*) app=true landing=true docs=true ;;
-                apps/dispatch/src/placement/index.ts) app=true landing=true docs=true ;;
-                apps/dispatch/src/*) app=true docs=true ;;
-                *) app=true ;;
-              esac
-            done <<< "$files"
-          fi
-          echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "landing=$landing" >> "$GITHUB_OUTPUT"
-          echo "docs=$docs" >> "$GITHUB_OUTPUT"
-          echo "app=$app landing=$landing docs=$docs"
-
-  check:
-    needs: changes
-    if: needs.changes.outputs.app == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - name: Format
-        run: bun run fmt:check
-      - name: Typecheck
-        run: bun run typecheck
-      - name: Lint
-        run: bun run lint
-      - name: Test
-        run: bun run test
+          EVENT_NAME: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: scripts/ci-route.sh "$EVENT_NAME" "$BASE" HEAD
 
   landing:
     needs: changes
-    if: needs.changes.outputs.landing == 'true'
+    if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -94,7 +50,6 @@ jobs:
 
   docs:
     needs: changes
-    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -110,6 +65,49 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
+
+  # This remains the required ci/check job. It runs application checks on the full route, skips
+  # them for docs-only PRs, and succeeds only after every job selected by the route succeeds.
+  check:
+    needs: [changes, landing, docs]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        run: bun install --frozen-lockfile
+      - name: Format
+        if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        run: bun run fmt:check
+      - name: Typecheck
+        if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        run: bun run typecheck
+      - name: Lint
+        if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        run: bun run lint
+      - name: Test
+        if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        run: bun run test
+      - name: Require the selected CI route
+        if: always()
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          LANDING_RESULT: ${{ needs.landing.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+        run: |
+          case "$DOCS_ONLY:$CHANGES_RESULT:$LANDING_RESULT:$DOCS_RESULT" in
+            true:success:skipped:success|false:success:success:success) ;;
+            *) echo "CI route failed: docs_only=$DOCS_ONLY changes=$CHANGES_RESULT landing=$LANDING_RESULT docs=$DOCS_RESULT" >&2; exit 1 ;;
+          esac
 
   claude-triage:
     # Shared kit fragment (claude-ci), Forgejo Actions: the last job of the product's CI
