@@ -69,12 +69,11 @@ The independent verification item above records the detailed line-level matrix a
 
 ## Claude review
 
-Pending. Every finding and its resolution will be recorded here before publication.
+Forge PR [#31](https://forge.superjackfruit.com/SuperJackfruitLabs/superdispatch/pulls/31) completed CI and Claude review without a finding requiring another content change. The reviewed head was `30cb2ebe269b0230fcddd1d8fb746f0797757be1`, containing the immutable exemplar revision above.
 
 ## Rendered exemplar and operator gate
 
 - Rendered exemplar URL: https://app.superlibrary.dev/a/itm_b60c16effc2249c7
 - Build provenance: PR branch at `97c4a13ef16aa983b13c936ecfb27c972d03f4a0`; folder entry `start/first-placement/index.html`; SHA-256 `193eb2860ec1b8018a36e6188cb1550a3423c5c36fc3b252401bc586ee8574fa`; artifact URL fetched with HTTP 200.
-- Operator record: pending. It must say `approved for rollout` and bind the rendered URL, exemplar `97c4a13ef16aa983b13c936ecfb27c972d03f4a0`, and guide `29690e4397467bcf92ea7ef7e88b4e89cffba88f`.
-
-Do not merge or touch another product until that operator record exists.
+- Operator record: **approved for rollout**. On 2026-11-14, the operator explicitly bound that approval to rendered URL `https://app.superlibrary.dev/a/itm_b60c16effc2249c7`, exemplar `97c4a13ef16aa983b13c936ecfb27c972d03f4a0`, and guide `29690e4397467bcf92ea7ef7e88b4e89cffba88f`.
+- Publication: PR #31 merged as `77185fc39f3431a3ffeca6d05bf405561b58f1b0`. Rollout to other pages continues on a separate card.
