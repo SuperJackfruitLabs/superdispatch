@@ -3,10 +3,11 @@ title: Learned routing
 description: The dataset of settled decisions, the model trained on it, and the shadow mode and gate it must pass before it places a card. Off by default.
 ---
 
-Off by default, and **it needs data first.** Every settled decision is a labelled example: the
+Learned routing is off by default, and **it needs data first.** Every settled decision is a labelled example: the
 candidates, what each filter said, the score terms, the tier and what became of the card. That log,
 more than any formula fitted to it, is the asset, and it only grows as boards are placed. A model
-fitted on a few dozen decisions is noise: run it in shadow first.
+fitted on a few dozen decisions is noise. We keep the model behind a shadow period and an explicit
+gate so you can measure it before it gets a vote.
 
 ## The dataset
 
@@ -39,6 +40,9 @@ A `lost` candidate was never offered the card, so it says nothing about whether 
 taken it: it is kept, and not trained on. Only eligible candidates are trained on. The target is the
 claim: whether the claimed run then succeeded is SuperWitness's to say, and is not joined yet.
 
+That last gap matters: this dataset learns willingness to claim, not whether the work ultimately
+went well.
+
 ## The model
 
 `POST /v1/models/train`, body `{ since?, seed? }`: logistic regression over 12 features (stage
@@ -53,6 +57,8 @@ full-batch gradient descent from zero weights in plain TypeScript, with no depen
   holdout's.
 - Each model is stored as the next version (`GET /v1/models`, `GET /v1/models/:id`).
 - Training only stores a model. It places nothing.
+
+So training is safe to repeat while you inspect the metrics; it changes no live placement.
 
 ```sh
 curl -X POST -H "authorization: Bearer $TOKEN" -d '{"seed":1}' http://127.0.0.1:8796/v1/models/train
@@ -88,8 +94,14 @@ curl -X POST -H "authorization: Bearer $TOKEN" -d '{"seed":1}' http://127.0.0.1:
 
 The report also says how the gate reads under the current settings.
 
+The lower-bound treatment is intentionally cautious. It refuses to award the model a success that
+the live system never gave it a fair chance to demonstrate.
+
 ```sh
 curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/models/mdl_…/shadow-report
 ```
 
 Placement stays pure: the loop reads the model from the store and hands it to placement as data.
+
+You can therefore compare the model, keep it in shadow, or turn it back off without changing the
+placement engine's authority boundaries.

@@ -6,7 +6,7 @@ description: How SuperDispatch flags lanes that rest on one agent, and what it s
 A board where each capability has one agent stalls when that agent does. After each sweep,
 SuperDispatch reads its own recent decisions and flags the **lanes** (a board's stage and the
 capability it asks for) that rest on too few working agents. Each flag is a **suggestion** for a
-person.
+person. It turns a repeated placement symptom into something you can inspect and choose to act on.
 
 **It never edits a roster.** A person makes the change, in AgentPod. The computation reads and
 writes SuperDispatch's own store and nothing else: no client it holds of another product has a
@@ -53,6 +53,9 @@ A flagged lane is one suggestion, of one of two kinds:
   is found again.
 - One that resolved and **comes back later opens anew**.
 
+That lifecycle keeps a suggestion useful: it can clear itself when the evidence clears, stay quiet
+after dismissal, and return if the problem genuinely returns.
+
 ```sh
 curl -H "authorization: Bearer $TOKEN" "http://127.0.0.1:8796/v1/suggestions?board=brd_…&state=open"
 curl -X POST -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/suggestions/sug_…/dismiss
@@ -62,3 +65,6 @@ curl -X POST -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/suggesti
 
 Suggestions are read on the [operator API](/run/operator-api/). Nothing posts them to a board's
 room yet.
+
+For now, plan to read them from the API; there is no chat notification to catch a missed lane for
+you.

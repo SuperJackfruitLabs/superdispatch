@@ -6,7 +6,8 @@ description: What a placement decision records, every field of it, and how to re
 Every placement is a **decision**, kept in SuperDispatch's own store. A decision alone answers
 "why did this card go there?": the card, the policy, the tier, every candidate with each filter's
 result and the score that ranked it, the hold, and on a later pass what became of the card. A
-settled decision is also a labelled example for [learned routing](/records/learned-routing/).
+settled decision is also a labelled example for [learned routing](/records/learned-routing/). Read
+one from the chosen agent outward and the placement stops being a black box.
 
 Decisions are read on the [operator API](/run/operator-api/):
 
@@ -102,6 +103,8 @@ Each candidate:
 
 ## Reading one
 
+You rarely need every field at once. Start with the question you are trying to answer:
+
 - **Why this agent?** Find the candidate with the highest `score.total`. Its `terms` say what
   weighed: its record at the stage, its success on the board, how long since it last took work.
 - **Why not that agent?** Find its candidate. The first `passed: false` filter's `reason` says what
@@ -120,3 +123,6 @@ Each candidate:
 The charter asks for each decision to be published through [Treaty's relay](https://treaty.superjackfruit.com/relay/), so SuperWitness can
 audit it and chat can show it. That needs a decision event in [Treaty's catalogue](https://treaty.superjackfruit.com/events/) first. Until then
 the operator API is the only way to read decisions.
+
+That limitation is worth planning around: today the record is complete, but you must come to this
+API to fetch it.

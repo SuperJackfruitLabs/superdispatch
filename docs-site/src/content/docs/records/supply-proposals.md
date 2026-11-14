@@ -5,7 +5,8 @@ description: What SuperDispatch proposes when a lane goes unplaced for want of a
 
 Placement can only choose among the agents and stations there are. When a lane goes unplaced for
 want of supply, the same computation that makes [roster suggestions](/records/roster-suggestions/)
-proposes what a person could change.
+proposes what a person could change. The proposal translates a filter failure into a practical next
+move while leaving the decision—and the infrastructure—with you.
 
 **It never changes a station.** Each proposal names the verb a person would use (`howToApply`), in
 AgentPod or in SuperPipeline. SuperDispatch calls none of them and files no request for one: every
@@ -61,9 +62,15 @@ A proposal is a row in the same table as the roster suggestions, with its own ki
 Roster suggestions and supply proposals are synced in one step, so neither resolves the other.
 List one kind with `GET /v1/suggestions?kind=change-model`.
 
+That shared record gives you the evidence and the proposed verb together, without pretending the
+proposal has already been approved.
+
 ## Why not file the change
 
 A hand-off would need a new AgentPod verb first: a supply-request queue that a named service may
 file into under an allowlist, that a workspace admin approves or declines in the console, and whose
 approval runs the existing verb as that person, with an audit row. AgentPod has no such queue, so
 a proposal is something a person reads.
+
+Until that approval path exists, the honest stopping point is advice. SuperDispatch names the
+shortfall; a person owns the change.
