@@ -4,7 +4,8 @@ description: How the candidates that pass every filter are ranked - their record
 ---
 
 Every candidate that passes all the [filters](/placement/filters/) is scored. The ranking is a
-fixed policy, recorded on each decision by name: `idle-stage-success-lru@3`.
+fixed policy, recorded on each decision by name: `idle-stage-success-lru@3`. The name and the terms
+travel with the decision, so you can inspect the ranking instead of trusting a mystery number.
 
 ## The order
 
@@ -18,6 +19,9 @@ Candidates are compared term by term; a later term only breaks a tie in the earl
 The decision records each candidate's `score` as `{ total, terms }`. `total` is how many eligible
 candidates it outranks plus one, so the best has the highest total and the record reads as a
 ranking. `terms` holds the numbers above, so the record says what weighed.
+
+The highest total wins, but the terms are the useful part: they let you explain which earlier term
+settled the order.
 
 ## Success on this board
 
@@ -67,3 +71,5 @@ setting).
 Learned routing can, past a gate, hold a model's choice instead of the formula's. It is off by
 default and records its choice beside the formula's in shadow first. See
 [Learned routing](/records/learned-routing/).
+
+Until that gate is passed, this fixed and inspectable order remains the placement decision.

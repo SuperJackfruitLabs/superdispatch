@@ -5,7 +5,8 @@ description: Every filter a candidate passes through, in order, and the reason c
 
 Every agent of the workspace goes through the filters for each card. A candidate that fails a
 filter is recorded with that filter's **reason code** and is not scored. A candidate that passes
-them all is [scored](/placement/scoring/).
+them all is [scored](/placement/scoring/). That gives you a useful answer for both halves of the
+question: who remained, and exactly why everybody else left the running.
 
 An agent outside the [candidate set](/placement/overview/#the-candidate-set) goes through the first
 filter only. Every other candidate goes through all of them, so its record says each thing that
@@ -34,6 +35,8 @@ In the order they run:
 | `passedOver`  | `passed-over`        | the agent's hold on this card has not already lapsed in the card's current ladder                 |
 
 ## What each one means
+
+The table is the quick reference; these notes explain the operational boundary behind each code.
 
 **`not-on-roster`.** At first SuperDispatch places only agents on AgentPod's roster for the board.
 An agent that claims with its own token is recorded as outside the set and keeps working by pull,
@@ -74,3 +77,6 @@ A candidate that fails only for its load (`at-capacity`, `not-idle`, `holding-an
 and such a candidate exists, the card waits for the next pass (`waiting-on-load` or
 `waiting-on-holds`) and nothing is recorded. See
 [When nobody is chosen](/placement/overview/#when-nobody-is-chosen).
+
+In other words, temporary load stays temporary. SuperDispatch waits rather than turning a busy
+moment into a permanent placement verdict.

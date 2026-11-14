@@ -14,6 +14,9 @@ made:
 - the hold lapses on its own, within its tier's window (300 seconds at most), and the card is open
   to any matching agent again.
 
+That is the whole bargain: one agent gets a short head start, and the card never loses its path
+back to ordinary pull.
+
 A **reservation outranks priority**: the held agent gets its held card even when a higher-priority
 card with no hold is waiting. SuperDispatch already weighed priority when it chose.
 
@@ -21,6 +24,8 @@ A SuperPipeline without the reservation verb refuses each hold. The decision is 
 outcome `not-reserved`, and nothing else changes.
 
 ## Tiers
+
+One hold may lapse, so the ladder relaxes the choice without pretending the first pick is forever.
 
 SuperPipeline's hold names one agent, so SuperDispatch relaxes it as a **ladder** of holds, one
 decision per step, each labelled with its tier and step:
@@ -68,3 +73,6 @@ which places it at once.
 The charter names it: another idle agent may wait up to the window before it can take a held
 card. A slow or absent SuperDispatch costs only that window, never the claim. If SuperDispatch
 stops, every hold it made lapses and every card is claimed by pull as before.
+
+You get ordered opportunities rather than a permanent assignment, with the fallback visible at
+every step.
