@@ -3,8 +3,9 @@ title: Status and limits
 description: Where SuperDispatch stands. v0.0.1 places cards in production, and what it does not do yet.
 ---
 
-SuperDispatch is early. These docs describe what the current source does, and this page says what
-it does not.
+SuperDispatch is early. These docs describe what the current source does; this page is where we
+keep the rough edges in view. You should not have to discover a limit by leaning on it in
+production.
 
 ## Where it stands
 
@@ -17,6 +18,9 @@ it does not.
   (`SUPERDISPATCH_POLICY=off`) and learned routing is off (`SUPERDISPATCH_LEARNED=off`).
 
 ## What it does not do yet
+
+Here is the unfinished work, plainly. Each limit below follows the current code rather than a
+roadmap promise.
 
 **The dispatch policy is not enforced on pull.** SuperPipeline does not check Accounts' dispatch
 policy when an agent claims. With `SUPERDISPATCH_POLICY=on`, SuperDispatch will not hold a card
@@ -54,3 +58,6 @@ from SuperWitness, when it is set.
 **The reservation window is not settled.** The charter left its length to be measured against real
 claim latency. The defaults (60 seconds for the winner, 30 for each runner-up, a 10-second
 placement window) are where it starts.
+
+If one of these limits matters to your board, keep the corresponding feature at its conservative
+default and treat the operator API as the source of truth.

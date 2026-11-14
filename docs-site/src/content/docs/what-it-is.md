@@ -4,7 +4,8 @@ description: The suite's scheduler. It reads cards from SuperPipeline and agents
 ---
 
 SuperDispatch is the suite's scheduler. When a SuperPipeline card is ready, it decides which agent
-should take it, and records why.
+should take it and records why. You get a choice you can inspect, rather than a result you have to
+reverse-engineer after the claim.
 
 Before it, placement happened anyway, scattered and mostly by hand: a person added an agent to a
 board's roster in AgentPod, and the agent pulled any card whose capability matched. Whoever asked
@@ -25,7 +26,8 @@ On each board the operator [opts in](/run/opting-a-board-in/), every 30 seconds 
 4. **records the decision**, with every candidate and the reason for each
    ([Decision records](/records/decisions/)).
 
-After each sweep it reads its own decisions back and flags lanes that rest on one agent or go
+By the end of that pass, you have both a temporary hold and a durable explanation of how it was
+chosen. After each sweep it reads its own decisions back and flags lanes that rest on one agent or go
 unplaced for want of supply: [roster suggestions](/records/roster-suggestions/) and
 [supply proposals](/records/supply-proposals/), advice for a person.
 
@@ -62,6 +64,9 @@ These come from the charter decision
 
 ## What it is not
 
+The boundaries matter as much as the scheduler. They keep a useful suggestion from quietly turning
+into a second control plane.
+
 - **Not a dispatcher.** It never claims a card and never hands one to an agent. Direct dispatch
   was ruled out: it would replace the pull that works today and make the scheduler a dependency.
 - **Not inside SuperPipeline or AgentPod.** A board would otherwise need to know about stations,
@@ -81,3 +86,6 @@ the facts. The source is at
 ([`card.ready`](https://treaty.superjackfruit.com/events/card-ready-v1/) and the rest of the
 [event catalogue](https://treaty.superjackfruit.com/events/)), the envelope they arrive in and the
 relay's signed delivery are Treaty's.
+
+That leaves one compact service with a narrow job: read the facts, recommend a placement, and show
+its work.
