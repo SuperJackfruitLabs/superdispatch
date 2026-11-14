@@ -1,0 +1,71 @@
+# Claims ledger — SuperDispatch docs voice rollout
+
+Status: draft-stage evidence for the 19-page voice rollout.
+
+## Immutable revisions and scope
+
+- PR base: `77185fc39f3431a3ffeca6d05bf405561b58f1b0` (merge of SuperDispatch PR #31).
+- Voice guide: `SuperJackfruitLabs/sketchbook@29690e4397467bcf92ea7ef7e88b4e89cffba88f`, `ideas/2026-11-14-docs-voice-guide-v1/README.md`.
+- Exemplar, unchanged: `docs-site/src/content/docs/start/first-placement.mdx` at the PR base.
+- Rollout: the other 19 pages under `docs-site/src/content/docs/`, plus the claims ratchet and this ledger.
+- Product code evidence below is pinned to the PR base. The rollout changes no product code, configuration, deployment script or test fixture.
+
+## Voice review
+
+| Page kind | Result | Evidence |
+| --- | --- | --- |
+| Home | pass | The existing maître-d' premise remains confined to the home page; the opening and four promises now address the reader directly. |
+| Task pages (`start/`, `run/`) | pass | Actions state the result they buy: a usable lane, a real candidate choice, a live service, an opted-in board, a traceable decision, an opted-out board, and a recoverable release. Commands, output and recovery stay literal. |
+| Concept and reference pages | pass | Warm, direct prose frames the exact tables, fields, enums and limits; no running gag was added. |
+| Candour | pass | Fail-open station checks, advisory-only policy, API-only decisions/suggestions, claim-only learned targets and conservative learned-routing gates remain explicit and are backed below. |
+| Exact material | pass | Commands, route/field tables, settings, defaults, JSON, reason codes and warnings contain no humour. Placeholder tokens and IDs remain synthetic. |
+| Privacy | pass | No private host, person, agent, team or credential value was added. Product names, public loopback examples, setting names and synthetic identifiers are the only identifiers used. |
+| Exemplar boundary | pass | `start/first-placement.mdx` is unchanged from the base. |
+
+## Claims checked at the PR base
+
+Each row covers every material command, route, flag, setting, default, field, enum, reason, status, limit and behavioural statement on that page. Line ranges point to the implementation or configuration at the base; tests are named where they are the clearest executable evidence.
+
+| Page | Material checked | Base evidence |
+| --- | --- | --- |
+| `index.mdx` | 10-second placement window; workspace candidate filtering; policy order; 60/30-second holds; `claimed`; the four authority/data/failure/record promises; v0.0.1 status | `apps/dispatch/src/config.ts:39-70`; `apps/dispatch/src/placement/index.ts:79-89,194-275,326-391`; `apps/dispatch/src/loop/index.ts:1-74`; `AGENTS.md:5-18`; `CHANGELOG.md:1-20` |
+| `what-it-is.md` | 30-second sweep and event nudge; pass order; fairness; reservation precedence; roster/all candidate sets; idle cap; tier relaxation; store and technology claims | `apps/dispatch/src/config.ts:39-70,95-146`; `apps/dispatch/src/loop/index.ts:1-74`; `apps/dispatch/src/placement/index.ts:79-89,326-391,503-554`; `apps/dispatch/src/store/index.ts:162-291`; `package.json:1-23` |
+| `status.md` | conservative built-in defaults; policy is advisory on pull; no decision event/chat publication; fail-open registry; learned target and defaults; reservation defaults | `apps/dispatch/src/config.ts:39-62,95-158`; `apps/dispatch/src/loop/policy.ts:1-110`; `apps/dispatch/src/loop/index.ts:44-74`; `apps/dispatch/src/placement/dataset.ts:1-240`; `apps/dispatch/src/placement/shadow.ts:1-142` |
+| `start/what-you-need.md` | capability lane; two-candidate minimum and `one-candidate`; required scopes/settings; operator `PUT` command; opt-in boundary | `apps/dispatch/src/placement/index.ts:79-89,326-348`; `apps/dispatch/src/config.ts:8-31`; `apps/dispatch/src/sources/accounts.ts:1-206`; `apps/dispatch/src/routes/operator.ts:51-58,83-143`; `apps/dispatch/src/loop/index.ts:218-223` |
+| `run/running-it.md` | startup command/settings; default port and log values; health body; required scopes; every dependency route; optional fallbacks; two external writes; holds lapse | `apps/dispatch/src/config.ts:8-70,95-158,243-343`; `apps/dispatch/src/main.ts:1-115`; `apps/dispatch/src/routes/index.ts:75-96`; `apps/dispatch/src/sources/accounts.ts:1-206`; `apps/dispatch/src/sources/superpipeline.ts:1-300`; `apps/dispatch/src/sources/agentpod.ts:1-152`; `apps/dispatch/src/sources/superwitness.ts:1-156`; `apps/dispatch/src/loop/index.ts:1-74` |
+| `run/opting-a-board-in.md` | board `PUT`/`DELETE`/`GET` commands and response; immediate look; placement window/default; five-minute window retry; candidate/default prerequisites; decision query/log; retained row/history and cleared window | `apps/dispatch/src/routes/operator.ts:51-58,83-183,230-260`; `apps/dispatch/src/loop/runner.ts:1-145`; `apps/dispatch/src/loop/index.ts:44-74,218-360`; `apps/dispatch/src/config.ts:48-70,95-125`; `apps/dispatch/src/store/index.ts:217-222,444-460` |
+| `run/operator-api.md` | authentication/hash/401; all 16 method/path pairs; decision limit 1–200/default 50; suggestion kinds/states; dataset formats; model body/routes; response families | `apps/dispatch/src/routes/index.ts:1-98`; `apps/dispatch/src/routes/operator.ts:1-286`; `apps/dispatch/src/routes/learned.ts:1-195`; `apps/dispatch/src/routes/relay.ts:1-133`; mechanically compared by `docs-site/scripts/check-claims.mjs` |
+| `run/settings.md` | all 31 setting names; six required settings; numeric ranges/defaults; enum values/defaults; absolute data directory and port; conservative widening defaults | `apps/dispatch/src/config.ts:8-158,243-480`; mechanically compared by `docs-site/scripts/check-claims.mjs` |
+| `run/production.md` | tag-only production release; CI fallback; forced-command release; notes; staging-on-main; smoke order; rollback/store compatibility; commands and host paths/ports; built-in widening defaults | `.github/workflows/release.yml:1-220`; `.github/release-config.json:1-11`; `deploy/production/release.sh:1-124`; `deploy/production/smoke.sh:1-23`; `deploy/production/rollback.sh:1-19`; `deploy/production/compose.yml:1-46`; `apps/dispatch/src/config.ts:95-158` |
+| `placement/overview.md` | sweep/event pass; all five outcomes; readiness/fairness; two-candidate minimum; all six no-decision reasons and recording behaviour; five-minute redecision delay; candidate sets/load shape/health; placement window and two-second event nudge | `apps/dispatch/src/loop/index.ts:1-74,261-360`; `apps/dispatch/src/loop/runner.ts:1-145`; `apps/dispatch/src/placement/index.ts:79-110,194-391,503-554`; `apps/dispatch/src/sources/load.ts:1-110`; `apps/dispatch/src/store/index.ts:147-160`; mechanically compared reason/outcome lists by `check-claims.mjs` |
+| `placement/filters.md` | all 15 filters in order; all 15 reason codes; pipeline reason mapping; policy/station/load semantics; two no-shows in 30 minutes; pass-over and wait-only load behaviour | `apps/dispatch/src/placement/index.ts:79-89,194-275,503-566`; `apps/dispatch/src/loop/index.ts:1-74`; exact row/order comparison by `docs-site/scripts/check-claims.mjs` |
+| `placement/station-filters.md` | four need names/reasons; isolation order; proof enum/default; conditional/disabled/fail-open registry reads; `CATALOG_READERS`; advice-only outcome | `apps/dispatch/src/placement/requirements.ts:1-97`; `apps/dispatch/src/placement/index.ts:210-219,557-620`; `apps/dispatch/src/config.ts:105-135,398-420`; `apps/dispatch/src/sources/agentpod.ts:1-152`; `apps/dispatch/src/loop/index.ts:68-74` |
+| `placement/scoring.md` | `idle-stage-success-lru@3`; lexicographic order and score shape; smoothed board rate; never-dispatched ordering; SuperWitness query/1,000 limit/window/half-life/minimum; verdict mapping; neutral fallback; learned gate boundary | `apps/dispatch/src/placement/index.ts:79-110,121-191,289-316,600-690`; `apps/dispatch/src/sources/superwitness.ts:1-150`; `apps/dispatch/src/config.ts:86-93,148-158`; `apps/dispatch/src/loop/learned.ts:1-153`; policy name mechanically checked by `check-claims.mjs` |
+| `placement/policy.md` | mode/default; narrowing only; Accounts route/scope/input/output; no-label limit; max-runs window; cached no-policy/fail-closed reasons; advisory-on-pull limit | `apps/dispatch/src/config.ts:127-146`; `apps/dispatch/src/sources/accounts.ts:1-206`; `apps/dispatch/src/loop/policy.ts:1-142`; `apps/dispatch/src/placement/index.ts:220-225,425-434,477-480` |
+| `placement/holds-and-tiers.md` | reservation semantics/300-second maximum/priority; unsupported verb outcome; tier enum/defaults/top-k; five-minute retry; ladder reset; no-show rule; fairness enum/default; placement-window/failure cost | `apps/dispatch/src/config.ts:42-70,311-350`; `apps/dispatch/src/placement/index.ts:79-89,326-403`; `apps/dispatch/src/loop/index.ts:1-74,261-360`; `apps/dispatch/src/sources/superpipeline.ts:1-300`; tier names mechanically checked by `check-claims.mjs` |
+| `records/decisions.md` | query commands/order/limits; every decision and candidate field; ID shapes; policy/tier/source values; every outcome; interpretation; API-only publication limit | `apps/dispatch/src/routes/operator.ts:145-183,239-285`; `apps/dispatch/src/store/index.ts:42-110,147-160,249-260,536-575`; `apps/dispatch/src/placement/index.ts:256-317,319-423`; outcome/policy names mechanically checked by `check-claims.mjs` |
+| `records/learned-routing.md` | dataset route/schema/order/100,000 cap/row fields/labels/targets; training body, 12 features, algorithm, holdout and metrics; model storage; modes/defaults/gate; learned policy suffix; shadow-report lower bound; pure placement | `apps/dispatch/src/routes/learned.ts:1-195`; `apps/dispatch/src/placement/dataset.ts:1-260`; `apps/dispatch/src/placement/learned.ts:1-320`; `apps/dispatch/src/placement/shadow.ts:1-142`; `apps/dispatch/src/loop/learned.ts:1-153`; `apps/dispatch/src/config.ts:137-158` |
+| `records/roster-suggestions.md` | window/frequency/stall defaults; three lane rules; two kinds and candidate semantics; record shape; one-per-kind/board/stage lifecycle; routes; no-chat limit and no external write | `apps/dispatch/src/config.ts:72-93`; `apps/dispatch/src/placement/suggest.ts:1-313`; `apps/dispatch/src/loop/suggestions.ts:1-121`; `apps/dispatch/src/routes/operator.ts:22-31,186-225,263-285`; kinds/rules mechanically checked by `check-claims.mjs` |
+| `records/supply-proposals.md` | latest-blocked/two-evidence threshold; four kinds and conditions; proof handling; application verbs; record shape/sync; query; missing approval queue and advice-only boundary | `apps/dispatch/src/placement/supply.ts:1-497`; `apps/dispatch/src/loop/suggestions.ts:1-121`; `apps/dispatch/src/routes/operator.ts:22-31,186-225,263-285`; kinds mechanically checked by `check-claims.mjs`; write boundary in `AGENTS.md:5-18` |
+
+## Corrections
+
+Two source corrections are called out explicitly; neither was changed silently:
+
+| Old material | New material | Evidence |
+| --- | --- | --- |
+| The operator API described the header as `Authorization: Bearer <operator token>`, while every runnable example uses `$TOKEN`. | The prose now uses the neutral `Authorization: Bearer <token>` placeholder; runnable examples remain `Bearer $TOKEN`. | Header parser: `apps/dispatch/src/routes/operator.ts:83-96`; learned-route parser: `apps/dispatch/src/routes/learned.ts:62-75`. |
+| Status, settings and production said the production provisioning writes the three widening settings once at their defaults. No provisioning file or configuration at the PR base establishes that deployment behaviour. | The pages now state only the code-backed claim: the three settings have conservative built-in defaults (`roster`, `off`, `off`), and leaving them unset preserves those behaviours. | `apps/dispatch/src/config.ts:95-158,376-438`; production env-file boundary: `deploy/production/compose.yml:26-35`. |
+
+## Mechanical claims ratchet
+
+`docs-site/scripts/check-claims.mjs` already compared every setting/default/range, filter/reason, no-decision reason, outcome, tier, policy and suggestion/proposal kind with code. This rollout adds a route-table ratchet:
+
+- reads handler contract routes from `routes/index.ts`, `routes/operator.ts`, `routes/learned.ts` and `routes/relay.ts`;
+- normalises query examples to stable paths;
+- compares the resulting 16 method/path pairs exactly with the operator API table;
+- fails for a missing, stale or extra documented route.
+
+## Real checks
+
+To be filled from the required commands immediately before review.

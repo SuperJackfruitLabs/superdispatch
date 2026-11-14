@@ -66,8 +66,8 @@ release immediately before the named tag, and the final command shows the servic
 
 ## What a deploy does not change
 
-A deploy opts no board in. The settings that widen what SuperDispatch does are written once by the
-provisioning at their defaults, `SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
+A deploy opts no board in. The settings that widen what SuperDispatch does default to
+`SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
 `SUPERDISPATCH_LEARNED=off`, and are the operator's to change in `superdispatch.env`. A change takes
 at the next release, or at `docker compose ... up -d --force-recreate dispatch`. The start line
 names all three:
