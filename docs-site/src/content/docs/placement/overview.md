@@ -5,8 +5,9 @@ description: One pass over a board, from reading the cards to recording the deci
 
 SuperDispatch places cards on the boards the operator [opted in](/run/opting-a-board-in/). It
 looks at every one of them on a sweep, every `SUPERDISPATCH_SWEEP_SECONDS` (30 by default), and
-at one board as soon as the event relay delivers one of its events. Follow one pass and you can see
-where every fact enters, where the choice happens and where the receipt is written.
+at one board after the event relay delivers one of its events: a `card.ready` event takes the fast
+path at once, while another event nudges the board two seconds later. Follow one pass and you can
+see where every fact enters, where the choice happens and where the receipt is written.
 
 ## One pass
 

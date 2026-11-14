@@ -10,8 +10,7 @@ reached through a product's public API.
 ## Start it
 
 From the repository root, install the workspace and start the dispatch service with its required
-URLs, credential, relay secret, operator-token hash and data directory. Then ask the health
-endpoint whether it made it all the way up:
+URLs, credential, relay secret, operator-token hash and data directory:
 
 ```sh
 bun install
@@ -24,6 +23,12 @@ TREATY_RELAY_DELIVERY_SECRET=… \
 SUPERDISPATCH_OPERATOR_TOKEN_SHA256=$(printf '%s' "$OPERATOR_TOKEN" | shasum -a 256 | cut -d' ' -f1) \
 SUPERDISPATCH_DATA_DIR=$PWD/.data \
 bun apps/dispatch/src/main.ts
+```
+
+Leave that process running. In a second terminal, ask the health endpoint whether it made it all
+the way up:
+
+```sh
 curl http://127.0.0.1:8796/healthz
 ```
 

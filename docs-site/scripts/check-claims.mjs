@@ -93,9 +93,17 @@ const TIERS = listOf(placement, 'TIERS');
 
 /** Public routes named by each handler's contract comment, normalised without query examples. */
 const routeSources = [routeIndex, routeOperator, routeLearned, routeRelay];
-const ROUTES = [...new Set(routeSources.flatMap((source) =>
-  [...source.matchAll(/`(GET|POST|PUT|DELETE) (\/[^`]+)`/g)].map((m) => `${m[1]} ${m[2].split('?')[0]}`),
-))].sort();
+const routeSet = new Set(routeSources.flatMap((source) =>
+  [...source.matchAll(/`(GET|HEAD|POST|PUT|DELETE) (\/[^`]+)`/g)].map((m) => `${m[1]} ${m[2].split('?')[0]}`),
+));
+// The health dispatcher implements HEAD beside the GET named in its contract comment. Read that
+// branch from executable code so the route table cannot silently omit it again.
+const healthHead = routeIndex.match(
+  /pathname === "(\/[^"?]+)"\) \{\s*if \(request\.method === "GET" \|\| request\.method === "HEAD"\)/,
+)?.[1];
+if (healthHead === undefined) fail('routes/index.ts no longer exposes the expected GET/HEAD health branch; update check-claims');
+else routeSet.add(`HEAD ${healthHead}`);
+const ROUTES = [...routeSet].sort();
 if (ROUTES.length < 15) fail(`read only ${ROUTES.length} routes from the route contracts`);
 if (!POLICY) fail('found no POLICY in placement/index.ts');
 if (REASONS.length < 15) fail(`read only ${REASONS.length} reason codes from FILTERS`);
@@ -157,7 +165,7 @@ if (!has(settings, defaults.get('DEFAULT_PORT'))) fail('run/settings.md: the por
 // Routes: the operator API table is the route contracts, row for row. Query parameters stay in
 // prose; the table names the stable path. This catches both a forgotten new route and a stale one.
 const operatorApi = page('run/operator-api.md');
-const documentedRoutes = [...operatorApi.matchAll(/^\| `(GET|POST|PUT|DELETE)`\s+\| `([^`]+)`/gm)]
+const documentedRoutes = [...operatorApi.matchAll(/^\| `(GET|HEAD|POST|PUT|DELETE)`\s+\| `([^`]+)`/gm)]
   .map((m) => `${m[1]} ${m[2]}`)
   .sort();
 if (JSON.stringify(documentedRoutes) !== JSON.stringify(ROUTES)) {

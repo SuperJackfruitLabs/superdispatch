@@ -15,8 +15,10 @@ capability, one stuck agent stalled the lane.
 
 ## What it does
 
-On each board the operator [opts in](/run/opting-a-board-in/), every 30 seconds and as soon as the
-[event relay](https://treaty.superjackfruit.com/relay/) delivers one of the board's events, SuperDispatch:
+On each board the operator [opts in](/run/opting-a-board-in/), every 30 seconds and after the
+[event relay](https://treaty.superjackfruit.com/relay/) delivers one of the board's events,
+SuperDispatch runs a pass. A `card.ready` event takes the fast path at once; another event nudges
+the board two seconds later. In that pass, SuperDispatch:
 
 1. **reads the board** from SuperPipeline and settles what became of each card it held;
 2. **queues the ready cards** and takes them fairly across boards, longest-waiting first;

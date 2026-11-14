@@ -25,6 +25,7 @@ This is the whole surface. The table stays literal so you can scan it without tr
 | Method   | Path                              | What it does                                                                      |
 | -------- | --------------------------------- | --------------------------------------------------------------------------------- |
 | `GET`    | `/healthz`                        | `{ ok: true, service: "superdispatch" }`; no token                               |
+| `HEAD`   | `/healthz`                        | the health check via `HEAD`; no token                                               |
 | `POST`   | `/v1/relay/events`                | the event relay's deliveries, signed with `TREATY_RELAY_DELIVERY_SECRET`; no token |
 | `GET`    | `/v1/boards`                      | every board opted in, enabled or not                                              |
 | `PUT`    | `/v1/boards/:boardId`             | opt a board in, or enable it again; no body                                       |
