@@ -29,6 +29,10 @@ const placement = read(join(src, 'placement/index.ts'));
 const store = read(join(src, 'store/index.ts'));
 const suggest = read(join(src, 'placement/suggest.ts'));
 const supply = read(join(src, 'placement/supply.ts'));
+const routeIndex = read(join(src, 'routes/index.ts'));
+const routeOperator = read(join(src, 'routes/operator.ts'));
+const routeLearned = read(join(src, 'routes/learned.ts'));
+const routeRelay = read(join(src, 'routes/relay.ts'));
 
 /** The string literals of `export const NAME = [ ... ]` (comments dropped). */
 function listOf(source, name) {
@@ -86,6 +90,13 @@ const SUGGESTION_KINDS = listOf(suggest, 'SUGGESTION_KINDS');
 const LANE_RULES = listOf(suggest, 'LANE_RULES');
 const SUPPLY_KINDS = listOf(supply, 'SUPPLY_KINDS');
 const TIERS = listOf(placement, 'TIERS');
+
+/** Public routes named by each handler's contract comment, normalised without query examples. */
+const routeSources = [routeIndex, routeOperator, routeLearned, routeRelay];
+const ROUTES = [...new Set(routeSources.flatMap((source) =>
+  [...source.matchAll(/`(GET|POST|PUT|DELETE) (\/[^`]+)`/g)].map((m) => `${m[1]} ${m[2].split('?')[0]}`),
+))].sort();
+if (ROUTES.length < 15) fail(`read only ${ROUTES.length} routes from the route contracts`);
 if (!POLICY) fail('found no POLICY in placement/index.ts');
 if (REASONS.length < 15) fail(`read only ${REASONS.length} reason codes from FILTERS`);
 if (NO_DECISION.length < 5) fail(`read only ${NO_DECISION.length} no-decision reasons`);
@@ -143,6 +154,16 @@ for (const s of enums) {
 if (!has(settings, defaults.get('DEFAULT_DATA_DIR'))) fail('run/settings.md: the data directory default');
 if (!has(settings, defaults.get('DEFAULT_PORT'))) fail('run/settings.md: the port default');
 
+// Routes: the operator API table is the route contracts, row for row. Query parameters stay in
+// prose; the table names the stable path. This catches both a forgotten new route and a stale one.
+const operatorApi = page('run/operator-api.md');
+const documentedRoutes = [...operatorApi.matchAll(/^\| `(GET|POST|PUT|DELETE)`\s+\| `([^`]+)`/gm)]
+  .map((m) => `${m[1]} ${m[2]}`)
+  .sort();
+if (JSON.stringify(documentedRoutes) !== JSON.stringify(ROUTES)) {
+  fail(`run/operator-api.md's route table is not the route contracts:\n  page ${documentedRoutes.join(', ')}\n  code ${ROUTES.join(', ')}`);
+}
+
 // Filters: the table on the filters page is FILTERS, row for row, in order.
 const filters = page('placement/filters.md');
 const rows = [...filters.matchAll(/^\| `([a-zA-Z]+)`\s+\| `([a-z-]+)`/gm)].map((m) => ({ filter: m[1], reason: m[2] }));
@@ -168,6 +189,6 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log(
-  `check-claims: ${pages.size} pages; ${settingNames.size} settings, ${REASONS.length} reason codes, ` +
+  `check-claims: ${pages.size} pages; ${settingNames.size} settings, ${ROUTES.length} routes, ${REASONS.length} reason codes, ` +
     `${NO_DECISION.length} no-decision reasons, ${OUTCOMES.length} outcomes and ${SUGGESTION_KINDS.length + SUPPLY_KINDS.length} kinds match the code`,
 );
