@@ -11,7 +11,8 @@ healthy.
 
 A `vX.Y.Z` tag on main deploys production through the suite's shared release workflow
 (`.github/workflows/release.yml`, settings in `.github/release-config.json`, on the GitHub mirror
-only). Only the operator pushes tags.
+only). Only the operator pushes tags. When you are ready to release, push the tag and follow these
+three hand-offs:
 
 1. It checks that forge CI passed for the tag's commit, or runs `bun run check` at the tag when it
    cannot read that.
@@ -27,7 +28,8 @@ notes name exactly what changed.
 ## What the release checks
 
 `release.sh` takes an online copy of the store, builds the tag's image, recreates the service and
-checks, in order:
+checks, in order. You do not need to infer health from a green container icon; the script asks each
+dependency directly:
 
 1. `/healthz`;
 2. a token from Accounts with the service's own credential, for SuperPipeline;
@@ -43,7 +45,8 @@ store—never a half-finished upgrade left as the new normal.
 
 ## On the host
 
-As root:
+If you need to verify or recover production yourself, become root on the host and choose the
+command that matches the job:
 
 ```sh
 bash /opt/superdispatch/deploy/production/smoke.sh v0.0.1      # the checks again, changing nothing
@@ -66,8 +69,8 @@ release immediately before the named tag, and the final command shows the servic
 
 ## What a deploy does not change
 
-A deploy opts no board in. The settings that widen what SuperDispatch does default to
-`SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
+A deploy opts no board in. The settings that widen what SuperDispatch does are written once by the
+provisioning at their defaults, `SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
 `SUPERDISPATCH_LEARNED=off`, and are the operator's to change in `superdispatch.env`. A change takes
 at the next release, or at `docker compose ... up -d --force-recreate dispatch`. The start line
 names all three:
@@ -77,4 +80,4 @@ superdispatch: listening on :8796, sweeping every 30s, candidates roster, policy
 ```
 
 In other words, a deploy changes the software. You still decide which boards and wider behaviours
-it may use.
+it may use, so a routine release does not quietly broaden the scheduler while nobody is looking.

@@ -13,7 +13,7 @@ production.
   across boards and the placement window, with decisions settled against what became of each card.
 - **v0.0.1 runs in production, placing cards on the boards the operator has opted in.** A deploy
   opts no board in by itself; each board is [opted in](/run/opting-a-board-in/) by the operator.
-- **The settings that widen what it does default to off or narrow**: the candidate set is the roster
+- **The settings that widen what it does are off**: the candidate set is the roster
   (`SUPERDISPATCH_CANDIDATES=roster`), the dispatch policy is not asked
   (`SUPERDISPATCH_POLICY=off`) and learned routing is off (`SUPERDISPATCH_LEARNED=off`).
 

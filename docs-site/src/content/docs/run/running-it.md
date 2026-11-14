@@ -9,6 +9,10 @@ reached through a product's public API.
 
 ## Start it
 
+From the repository root, install the workspace and start the dispatch service with its required
+URLs, credential, relay secret, operator-token hash and data directory. Then ask the health
+endpoint whether it made it all the way up:
+
 ```sh
 bun install
 SUPERPIPELINE_URL=http://127.0.0.1:8787 \
@@ -23,8 +27,9 @@ bun apps/dispatch/src/main.ts
 curl http://127.0.0.1:8796/healthz
 ```
 
-`/healthz` answers `{ "ok": true, "service": "superdispatch" }`. The start line names the settings
-that widen what it does:
+`/healthz` answers `{ "ok": true, "service": "superdispatch" }`. That response is our first useful
+payoff: the process has accepted its configuration and is listening. Its start line also names the
+settings that widen what it does:
 
 ```
 superdispatch: listening on :8796, sweeping every 30s, candidates roster, policy off, learned routing off
@@ -38,7 +43,10 @@ You now have a live service and a health response. It still places nothing until
 
 ## What it needs from the others
 
-**Accounts.** One service credential for SuperDispatch, minted in the workspace
+The process is alive; now let's trace the access that makes it useful. We will work outward one
+product at a time, so every permission has an obvious reason to exist.
+
+**Accounts.** Mint one service credential for SuperDispatch in the workspace
 (`ORG_PLANE_SERVICE_CREDENTIAL`), with the scopes:
 
 | Scope              | For                                                 |
@@ -51,7 +59,10 @@ You now have a live service and a health response. It still places nothing until
 Its tokens are asked for SuperPipeline's URL, the hub's `ORG_PLANE_AUDIENCE` (`AGENTPOD_AUDIENCE`)
 and, when it is set, SuperWitness's public URL.
 
-**SuperPipeline.**
+With that credential in place, SuperDispatch can ask for narrowly scoped tokens instead of carrying
+one sprawling key around. Sprawling keys are memorable, but not in the good way.
+
+**SuperPipeline.** Make the following routes available to that credential:
 
 - `GET /v1/boards/:id`: the board and its cards;
 - `GET /v1/boards/:id/cards/:cardId/eligibility`: who could claim a card, and why not;
@@ -61,27 +72,42 @@ and, when it is set, SuperWitness's public URL.
 - with `SUPERDISPATCH_CANDIDATES=all`, `GET /v1/agents/load` (on `dispatch:read`). A SuperPipeline
   without it places the roster alone.
 
-**AgentPod.**
+Those routes give SuperDispatch the board, the eligibility facts and the one temporary hold it is
+allowed to request. The card itself still belongs to SuperPipeline.
+
+**AgentPod.** Allow the service to read the board roster and, when placement requirements are in
+use, the station catalog:
 
 - `GET /api/bridge/boards/:boardId/roster`, which the hub answers for a service listed in its
   `ROSTER_READERS`;
 - for stages that state a placement, `GET /api/catalog/stations`, for a service listed in its
   `CATALOG_READERS`. A hub without the catalog read leaves those placements unchecked.
 
-**SuperWitness** (optional). `GET /v1/runs`, which any token for its audience may read; no grant
-scope. Runs carry `stage_key` only from a SuperPipeline that reports it
+Now the scheduler knows who is on the board and, when the catalog is available, which stations meet
+the stage's requirements.
+
+**SuperWitness** is optional. Make `GET /v1/runs` available to any token for its audience; it needs
+no grant scope. Runs carry `stage_key` only from a SuperPipeline that reports it
 (`SUPERWITNESS_REPORT_STAGE`). Without it, scoring leaves the stage record out.
 
-**The event relay** (optional). A subscriber for `evt.*.superpipeline.>` delivering to
+When that history is present, scoring gains a stage record. When it is absent, the formula carries
+on without pretending the missing history was evidence.
+
+**The event relay** is optional. Configure a subscriber for `evt.*.superpipeline.>` delivering to
 `/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET` ([how the relay delivers and
 signs](https://treaty.superjackfruit.com/relay/#delivery-and-retries)). A [`card.ready`](https://treaty.superjackfruit.com/events/card-ready-v1/) places its card at
 once, alone, with the board's cached roster; any other event looks at its board two seconds later.
 Without the relay the sweep alone places cards, and most are lost to pull before it comes round.
 
+With the relay, a ready card gets an immediate placement attempt. Without it, the service still
+works, but the 30-second sweep is often too late to beat normal pull.
+
 Once those reads are available, SuperDispatch has the cards, candidates, policy and history it can
 actually use; an optional dependency that is absent degrades only the feature described above.
 
 ## What it writes
+
+We have followed every read; now let's close the loop by naming every write.
 
 Its own store, under `SUPERDISPATCH_DATA_DIR`: the boards opted in, the decisions, and the
 suggestions. Outside it, two writes, both to SuperPipeline: the hold, and a board's placement
@@ -91,6 +117,8 @@ That is the complete write boundary. You can audit it without hunting through a 
 effects.
 
 ## Without it
+
+Finally, stop the service in your mental model and check the blast radius.
 
 SuperDispatch never claims a card and never hands one to anybody. A hold it asks for lapses on its
 own within its tier's window, and a card's ladder ends with pull. If it stops, every hold it made

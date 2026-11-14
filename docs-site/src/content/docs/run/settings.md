@@ -77,9 +77,6 @@ eligible to place behind its evidence gate.
 
 ## In production
 
-The three settings that widen what SuperDispatch does have conservative built-in defaults:
-`SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
+The provisioning writes the three settings that widen what SuperDispatch does once, at their
+defaults: `SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
 `SUPERDISPATCH_LEARNED=off`. They are the operator's to change. See [Production](/run/production/).
-
-Leaving them unset keeps the candidate set narrow, skips policy reads and prevents a model from
-placing cards. Widening any of those remains your choice.

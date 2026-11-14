@@ -70,6 +70,5 @@ setting).
 
 Learned routing can, past a gate, hold a model's choice instead of the formula's. It is off by
 default and records its choice beside the formula's in shadow first. See
-[Learned routing](/records/learned-routing/).
-
-Until that gate is passed, this fixed and inspectable order remains the placement decision.
+[Learned routing](/records/learned-routing/). Until that gate is passed, this fixed and inspectable
+order remains the placement decision.
