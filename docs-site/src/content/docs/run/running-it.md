@@ -3,8 +3,9 @@ title: Running it
 description: How to start SuperDispatch, and what it needs from SuperPipeline, AgentPod, Accounts, SuperWitness and the event relay.
 ---
 
-SuperDispatch is a Bun service with a SQLite store. It runs as a plain process beside the hub and
-reaches the other products through their public APIs.
+We'll start SuperDispatch as a plain Bun process, prove it is listening, and then map each
+dependency to the exact read or write it needs. Its own state lives in SQLite; everything else is
+reached through a product's public API.
 
 ## Start it
 
@@ -32,7 +33,8 @@ superdispatch: listening on :8796, sweeping every 30s, candidates roster, policy
 A missing or malformed setting stops it before it listens, naming the setting, never its value.
 Every setting is on [Settings](/run/settings/).
 
-It places nothing until a board is [opted in](/run/opting-a-board-in/).
+You now have a live service and a health response. It still places nothing until a board is
+[opted in](/run/opting-a-board-in/), which keeps startup pleasantly free of surprise scheduling.
 
 ## What it needs from the others
 
@@ -76,11 +78,17 @@ signs](https://treaty.superjackfruit.com/relay/#delivery-and-retries)). A [`card
 once, alone, with the board's cached roster; any other event looks at its board two seconds later.
 Without the relay the sweep alone places cards, and most are lost to pull before it comes round.
 
+Once those reads are available, SuperDispatch has the cards, candidates, policy and history it can
+actually use; an optional dependency that is absent degrades only the feature described above.
+
 ## What it writes
 
 Its own store, under `SUPERDISPATCH_DATA_DIR`: the boards opted in, the decisions, and the
 suggestions. Outside it, two writes, both to SuperPipeline: the hold, and a board's placement
 window. Nothing else, and nothing to AgentPod.
+
+That is the complete write boundary. You can audit it without hunting through a thicket of side
+effects.
 
 ## Without it
 
@@ -88,3 +96,5 @@ SuperDispatch never claims a card and never hands one to anybody. A hold it asks
 own within its tier's window, and a card's ladder ends with pull. If it stops, every hold it made
 lapses and every card is claimed by pull as before; SuperPipeline and AgentPod work the same with
 it or without it.
+
+So the safe failure mode is deliberately boring: the temporary hold ends, and pull carries on.

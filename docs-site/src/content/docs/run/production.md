@@ -3,7 +3,9 @@ title: Production
 description: How a SuperDispatch release reaches production, what the release checks, how to roll back, and where its settings and store live.
 ---
 
-v0.0.1 runs in production and places cards on every board the operator has opted in.
+v0.0.1 runs in production and places cards on every board the operator has opted in. This page
+follows a release from tag to smoke test, then gives you the recovery commands if it does not stay
+healthy.
 
 ## How a release deploys
 
@@ -19,6 +21,9 @@ only). Only the operator pushes tags.
 
 A merge to main deploys staging.
 
+Once those three steps finish, production is on the tagged, CI-checked release and the release
+notes name exactly what changed.
+
 ## What the release checks
 
 `release.sh` takes an online copy of the store, builds the tag's image, recreates the service and
@@ -33,6 +38,9 @@ Those checks are the release's smoke test: the service has no public address. If
 fails one, the release that ran before is put back, with the store's copy when the new build had
 moved the schema, because a build refuses a database written by a newer one.
 
+The result is either a healthy new release or the previous release restored with a compatible
+store—never a half-finished upgrade left as the new normal.
+
 ## On the host
 
 As root:
@@ -43,6 +51,9 @@ bash /opt/superdispatch/deploy/production/rollback.sh v0.0.2   # put back the re
 cd /opt/superdispatch && SUPERDISPATCH_TAG=$(cat /etc/superdispatch/deployed) \
   docker compose -f deploy/production/compose.yml logs --tail 20 dispatch
 ```
+
+The smoke command proves the deployed tag without changing it; the rollback command restores the
+release immediately before the named tag, and the final command shows the service's recent log.
 
 | What           | Where                                                                                   |
 | -------------- | --------------------------------------------------------------------------------------- |
@@ -64,3 +75,6 @@ names all three:
 ```
 superdispatch: listening on :8796, sweeping every 30s, candidates roster, policy off, learned routing off
 ```
+
+In other words, a deploy changes the software. You still decide which boards and wider behaviours
+it may use.

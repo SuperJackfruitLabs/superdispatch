@@ -3,8 +3,8 @@ title: Opting a board in
 description: How the operator chooses which boards SuperDispatch places cards on, what opting in changes, and how to opt out.
 ---
 
-SuperDispatch places cards only on the boards the operator opts in. There are none until one is,
-and a production deploy opts none in.
+Let's turn placement on for one board—deliberately, and only for that board. SuperDispatch starts
+with none opted in, and a production deploy does not choose one for you.
 
 ## Opt a board in
 
@@ -24,6 +24,9 @@ Opting in:
 
 If SuperPipeline refuses the window, SuperDispatch tries again after five minutes, and the board is
 still swept meanwhile.
+
+The board is now in every sweep, its first look has already started, and its placement window is
+being kept in step with the opt-in.
 
 ## Before you do
 
@@ -50,6 +53,8 @@ later pass. The service log has a line per decision and per settlement:
 loop: brd_… card_… pld_… settled claimed by agt_…
 ```
 
+You can now connect a card to its choice and, on a later pass, to what actually happened.
+
 ## Opt it out
 
 ```sh
@@ -59,9 +64,13 @@ curl -X DELETE -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards
 The board's row stays, so it can be listed and enabled again with another `PUT`. Its decisions stay
 readable, holds already made lapse on their own, and its placement window goes back to none.
 
+Placement is off for this board; the evidence is still there when you need it.
+
 ## List the boards
 
 ```sh
 curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards          # every board, enabled or not
 curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/boards/brd_…    # one board
 ```
+
+That gives you the current opt-in state without changing it.

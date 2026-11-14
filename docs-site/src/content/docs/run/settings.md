@@ -3,9 +3,10 @@ title: Settings
 description: Every environment variable SuperDispatch reads, with its range and its default.
 ---
 
-SuperDispatch reads its settings from the environment once, at start. A missing or malformed
-setting stops it before it listens, naming the setting, never its value. A docs build checks this
-page against `apps/dispatch/src/config.ts`: every setting there is here, with its default.
+SuperDispatch reads its settings from the environment once, at start. You get one predictable
+configuration boundary: a missing or malformed setting stops the service before it listens,
+naming the setting and never its value. A docs build checks this page against
+`apps/dispatch/src/config.ts`, so every setting there is here with its default.
 
 ## Required
 
@@ -27,6 +28,9 @@ page against `apps/dispatch/src/config.ts`: every setting there is here, with it
 | `PORT`                   | Where it listens                                                             | `8796`          |
 
 ## Placement
+
+Start with these defaults. They keep the first rollout narrow, then let you widen one behaviour at
+a time when the decision records justify it.
 
 | Setting                                  | What it is                                                                                 | Range or values                 | Default       |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- | ------------- |
@@ -61,6 +65,9 @@ page against `apps/dispatch/src/config.ts`: every setting there is here, with it
 
 ## Learned routing
 
+Learned routing stays conservative on purpose: first off, then observable in shadow, and only then
+eligible to place behind its evidence gate.
+
 | Setting                            | What it is                                                              | Range or values         | Default |
 | ---------------------------------- | ----------------------------------------------------------------------- | ----------------------- | ------- |
 | `SUPERDISPATCH_LEARNED`            | Off, shadow (record the model's choice, hold the formula's), or on behind the gate | `off`, `shadow`, `on` | `off` |
@@ -73,3 +80,6 @@ page against `apps/dispatch/src/config.ts`: every setting there is here, with it
 The provisioning writes the three settings that widen what SuperDispatch does once, at their
 defaults: `SUPERDISPATCH_CANDIDATES=roster`, `SUPERDISPATCH_POLICY=off` and
 `SUPERDISPATCH_LEARNED=off`. They are the operator's to change. See [Production](/run/production/).
+
+That means a deploy cannot silently widen the candidate set, turn policy reads on or let a model
+place cards. Those remain your choices.
