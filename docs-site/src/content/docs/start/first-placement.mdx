@@ -55,8 +55,8 @@ If the request cannot connect, check the service log. A missing or malformed set
 startup; the error names the setting but never its value. Follow [Running it](/run/running-it/) to
 correct the setting and start the service before continuing.
 
-There it is: SuperDispatch is running on its default port, and you and I have a live operator API
-to work with.
+There it is: SuperDispatch is running on its default port, and we have a live operator API to work
+with.
 
 ## 2. Opt the board in
 
@@ -81,8 +81,8 @@ The request has no body. The response has this shape:
 }
 ```
 
-Hear that? Neither did we. SuperDispatch now includes the board in every sweep and checks it
-immediately. It also sets the board's placement window in SuperPipeline—10 seconds by default.
+SuperDispatch now includes the board in every sweep and checks it immediately. It also sets the
+board's placement window in SuperPipeline—10 seconds by default.
 During that window, a newly ready card is held back from pull so SuperDispatch can place it first.
 
 If the response is `401`, verify `$TOKEN`. If it says the board ID is invalid, set `$BOARD` to the
