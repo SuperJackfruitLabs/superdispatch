@@ -3,13 +3,14 @@ title: Operator API
 description: Every route of SuperDispatch's HTTP API - boards, decisions, suggestions, the dataset and models - and how it is authenticated.
 ---
 
-SuperDispatch's HTTP API is the operator's. It listens on `PORT` (8796). In production it has no
-public address.
+SuperDispatch's HTTP API is deliberately small and operator-only. You use it to choose boards,
+inspect decisions and work with suggestions or learned-routing records. It listens on `PORT`
+(8796); in production it has no public address.
 
 ## Authentication
 
 Every call but `/healthz` and the relay's deliveries carries
-`Authorization: Bearer <operator token>`. The token's SHA-256 must equal
+`Authorization: Bearer <token>`. The token's SHA-256 must equal
 `SUPERDISPATCH_OPERATOR_TOKEN_SHA256`; the service is never given the token itself. The check is
 constant-time and comes before anything is read, and a refusal is `401` and says nothing else.
 
@@ -19,9 +20,12 @@ SUPERDISPATCH_OPERATOR_TOKEN_SHA256=$(printf '%s' "$OPERATOR_TOKEN" | shasum -a 
 
 ## Routes
 
+This is the whole surface. The table stays literal so you can scan it without translating prose.
+
 | Method   | Path                              | What it does                                                                      |
 | -------- | --------------------------------- | --------------------------------------------------------------------------------- |
 | `GET`    | `/healthz`                        | `{ ok: true, service: "superdispatch" }`; no token                               |
+| `HEAD`   | `/healthz`                        | the health check via `HEAD`; no token                                               |
 | `POST`   | `/v1/relay/events`                | the event relay's deliveries, signed with `TREATY_RELAY_DELIVERY_SECRET`; no token |
 | `GET`    | `/v1/boards`                      | every board opted in, enabled or not                                              |
 | `PUT`    | `/v1/boards/:boardId`             | opt a board in, or enable it again; no body                                       |
@@ -44,6 +48,8 @@ not resolved, not dismissed), `dismissed`, `resolved` or `all`.
 
 ## What they answer
 
+The routes return records rather than hiding the useful part behind a summary:
+
 - A board: `{ boardId, enabled, createdAt, updatedAt }`. See
   [Opting a board in](/run/opting-a-board-in/).
 - A decision: see [Decision records](/records/decisions/).
@@ -65,3 +71,6 @@ curl -H "authorization: Bearer $TOKEN" "http://127.0.0.1:8796/v1/dataset?since=2
 curl -X POST -H "authorization: Bearer $TOKEN" -d '{"seed":1}' http://127.0.0.1:8796/v1/models/train
 curl -H "authorization: Bearer $TOKEN" http://127.0.0.1:8796/v1/models/mdl_…/shadow-report
 ```
+
+Those examples cover every route family; follow the linked record pages when you need the fields,
+not just the endpoint.

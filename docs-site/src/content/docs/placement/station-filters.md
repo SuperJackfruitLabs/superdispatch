@@ -5,7 +5,8 @@ description: How a stage's placement (isolation, models, tools, credentials) fil
 
 A SuperPipeline stage may say what a **station** needs to work it, in its `placement`. SuperDispatch
 checks each candidate's station against AgentPod's capability registry. AgentPod owns the catalog
-and the registry (charter decision of 2026-11-13); SuperDispatch only reads it.
+and the registry (charter decision of 2026-11-13); SuperDispatch only reads it. You can therefore
+ask for the environment the work needs without handing the scheduler control of that environment.
 
 ## What a stage can ask for
 
@@ -40,8 +41,14 @@ every fact. With `installed`, a tool someone merely declared does not satisfy a 
 The hub answers the registry only to a service listed in its `CATALOG_READERS`. See
 [Running it](/run/running-it/#what-it-needs-from-the-others).
 
+That fail-open behaviour is candid but important: when the registry cannot be read, the decision
+does not prove that a station met the stage's needs.
+
 ## What it leads to
 
 When a lane goes unplaced because no station has what its stage asks for, the same records feed
 [supply proposals](/records/supply-proposals/): change a station's model, move the work to a station
 that has what is missing, or set up a new one. SuperDispatch changes no station.
+
+You get a recorded shortfall and a proposal; a person still decides whether the infrastructure
+should change.

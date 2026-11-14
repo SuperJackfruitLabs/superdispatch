@@ -3,13 +3,16 @@ title: Production
 description: How a SuperDispatch release reaches production, what the release checks, how to roll back, and where its settings and store live.
 ---
 
-v0.0.1 runs in production and places cards on every board the operator has opted in.
+v0.0.1 runs in production and places cards on every board the operator has opted in. This page
+follows a release from tag to smoke test, then gives you the recovery commands if it does not stay
+healthy.
 
 ## How a release deploys
 
 A `vX.Y.Z` tag on main deploys production through the suite's shared release workflow
 (`.github/workflows/release.yml`, settings in `.github/release-config.json`, on the GitHub mirror
-only). Only the operator pushes tags.
+only). Only the operator pushes tags. When you are ready to release, push the tag and follow these
+three hand-offs:
 
 1. It checks that forge CI passed for the tag's commit, or runs `bun run check` at the tag when it
    cannot read that.
@@ -19,10 +22,14 @@ only). Only the operator pushes tags.
 
 A merge to main deploys staging.
 
+Once those three steps finish, production is on the tagged, CI-checked release and the release
+notes name exactly what changed.
+
 ## What the release checks
 
 `release.sh` takes an online copy of the store, builds the tag's image, recreates the service and
-checks, in order:
+checks, in order. You do not need to infer health from a green container icon; the script asks each
+dependency directly:
 
 1. `/healthz`;
 2. a token from Accounts with the service's own credential, for SuperPipeline;
@@ -33,9 +40,13 @@ Those checks are the release's smoke test: the service has no public address. If
 fails one, the release that ran before is put back, with the store's copy when the new build had
 moved the schema, because a build refuses a database written by a newer one.
 
+The result is either a healthy new release or the previous release restored with a compatible
+store—never a half-finished upgrade left as the new normal.
+
 ## On the host
 
-As root:
+If you need to verify or recover production yourself, become root on the host and choose the
+command that matches the job:
 
 ```sh
 bash /opt/superdispatch/deploy/production/smoke.sh v0.0.1      # the checks again, changing nothing
@@ -43,6 +54,9 @@ bash /opt/superdispatch/deploy/production/rollback.sh v0.0.2   # put back the re
 cd /opt/superdispatch && SUPERDISPATCH_TAG=$(cat /etc/superdispatch/deployed) \
   docker compose -f deploy/production/compose.yml logs --tail 20 dispatch
 ```
+
+The smoke command proves the deployed tag without changing it; the rollback command restores the
+release immediately before the named tag, and the final command shows the service's recent log.
 
 | What           | Where                                                                                   |
 | -------------- | --------------------------------------------------------------------------------------- |
@@ -64,3 +78,6 @@ names all three:
 ```
 superdispatch: listening on :8796, sweeping every 30s, candidates roster, policy off, learned routing off
 ```
+
+In other words, a deploy changes the software. You still decide which boards and wider behaviours
+it may use, so a routine release does not quietly broaden the scheduler while nobody is looking.

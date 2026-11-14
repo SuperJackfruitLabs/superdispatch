@@ -5,7 +5,9 @@ description: One pass over a board, from reading the cards to recording the deci
 
 SuperDispatch places cards on the boards the operator [opted in](/run/opting-a-board-in/). It
 looks at every one of them on a sweep, every `SUPERDISPATCH_SWEEP_SECONDS` (30 by default), and
-at one board as soon as the event relay delivers one of its events.
+at one board after the event relay delivers one of its events: a `card.ready` event takes the fast
+path at once, while another event nudges the board two seconds later. Follow one pass and you can
+see where every fact enters, where the choice happens and where the receipt is written.
 
 ## One pass
 
@@ -43,6 +45,8 @@ at one board as soon as the event relay delivers one of its events.
 After the sweep it computes [roster suggestions](/records/roster-suggestions/) and
 [supply proposals](/records/supply-proposals/) from its own decisions.
 
+That is one complete pass: settle yesterday's choice, queue today's work, choose, hold and record.
+
 ## When nobody is chosen
 
 A decision that chooses nobody says why:
@@ -62,6 +66,9 @@ while that agent pulls it unplaced.
 
 A card whose last decision chose nobody, or whose hold was refused, is not decided again for five
 minutes, so a card nobody can take is not recorded every sweep.
+
+So “nobody chosen” is still an explained result: either pull takes over, or the loop waits for a
+specific kind of capacity to return.
 
 ## The candidate set
 
@@ -105,3 +112,6 @@ SuperPipeline (`SUPERDISPATCH_PLACEMENT_WINDOW_SECONDS`, 10 by default; 0 on opt
 
 Any other event from a board makes SuperDispatch look at that board two seconds later. If
 SuperDispatch is absent, the window simply ends and pull proceeds.
+
+The window buys the scheduler a fair look without making it a dependency. When the look cannot
+happen, the card goes back to the pull path you already had.

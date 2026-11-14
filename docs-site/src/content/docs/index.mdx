@@ -14,7 +14,7 @@ import JackAside from '@superjackfruit/docs-theme/components/JackAside.astro';
 
 <BentoHome
   claim="Which agent takes the card, and why."
-  sub="A card is ready and three agents could take it. SuperDispatch looks at all of them, crosses out the ones who can't, ranks the rest and points at one. Then it writes down why, every time, like a maître d' who keeps excellent notes and never carries a single plate."
+  sub="A card is ready and three agents could take it. SuperDispatch looks at all of them, crosses out the ones who can't, ranks the rest and points at one. Then it keeps the receipts: who passed, who did not, and why. Think maître d' with excellent notes—and absolutely no interest in carrying a plate."
   actions={[
     { text: 'Your first placement', link: '/start/first-placement/' },
     { text: 'What it is', link: '/what-it-is/', variant: 'secondary' },
@@ -48,6 +48,8 @@ import JackAside from '@superjackfruit/docs-theme/components/JackAside.astro';
 
 ## Four rules it will not bend
 
+These are the promises you can design around, not aspirations pencilled into a roadmap.
+
 **It points; SuperPipeline holds.** SuperDispatch names a preferred agent, and SuperPipeline holds
 the card for that agent for a short reservation that lapses on its own. SuperDispatch never claims
 a card and never hands one over. (The maître d' does not carry plates. We checked. There's a test.)
@@ -59,7 +61,7 @@ writes a [roster suggestion](/records/roster-suggestions/) for a person, and the
 **Nothing requires it.** Switch it off and every agent claims by pull, exactly as before. When it is
 slow or absent, the cost is the reservation window, never the claim.
 
-**Every decision is a record.** The card, every candidate, each filter's result with its reason
+**Every decision is a record.** You get the card, every candidate, each filter's result with its reason
 code, the score that ranked the rest, the hold, and what became of the card. "Why did that go
 there?" always has an answer. See [Decision records](/records/decisions/).
 

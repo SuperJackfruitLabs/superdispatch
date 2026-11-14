@@ -3,9 +3,10 @@ title: Settings
 description: Every environment variable SuperDispatch reads, with its range and its default.
 ---
 
-SuperDispatch reads its settings from the environment once, at start. A missing or malformed
-setting stops it before it listens, naming the setting, never its value. A docs build checks this
-page against `apps/dispatch/src/config.ts`: every setting there is here, with its default.
+SuperDispatch reads its settings from the environment once, at start. You get one predictable
+configuration boundary: a missing or malformed setting stops the service before it listens,
+naming the setting and never its value. A docs build checks this page against
+`apps/dispatch/src/config.ts`, so every setting there is here with its default.
 
 ## Required
 
@@ -27,6 +28,9 @@ page against `apps/dispatch/src/config.ts`: every setting there is here, with it
 | `PORT`                   | Where it listens                                                             | `8796`          |
 
 ## Placement
+
+Start with these defaults. They keep the first rollout narrow, then let you widen one behaviour at
+a time when the decision records justify it.
 
 | Setting                                  | What it is                                                                                 | Range or values                 | Default       |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- | ------------- |
@@ -60,6 +64,9 @@ page against `apps/dispatch/src/config.ts`: every setting there is here, with it
 | `SUPERDISPATCH_STALL_MINUTES`         | Minutes a card waits with nobody eligible before its lane is suggested for  | 1 to 1440  | `30`    |
 
 ## Learned routing
+
+Learned routing stays conservative on purpose: first off, then observable in shadow, and only then
+eligible to place behind its evidence gate.
 
 | Setting                            | What it is                                                              | Range or values         | Default |
 | ---------------------------------- | ----------------------------------------------------------------------- | ----------------------- | ------- |
