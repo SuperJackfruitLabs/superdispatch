@@ -73,7 +73,8 @@ Pending. Every finding and its resolution will be recorded here before publicati
 
 ## Rendered exemplar and operator gate
 
-- Rendered exemplar URL: pending.
+- Rendered exemplar URL: https://app.superlibrary.dev/a/itm_b60c16effc2249c7
+- Build provenance: PR branch at `6367233e6250a88c7da37ce7ca62a6119bb9af36`; folder entry `start/first-placement/index.html`; SHA-256 `a0c1ac1814d0f6c286f25497476b30e689b683e647288a991282b706d070294e`; artifact URL fetched with HTTP 200.
 - Operator record: pending. It must say `approved for rollout` and bind the rendered URL, exemplar `0e9a928ba8b9081e7bf1fed781347463e8053a5d`, and guide `29690e4397467bcf92ea7ef7e88b4e89cffba88f`.
 
 Do not merge or touch another product until that operator record exists.
