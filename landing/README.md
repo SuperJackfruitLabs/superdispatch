@@ -1,7 +1,7 @@
 # SuperDispatch landing page
 
 The public page at `superdispatch.dev`. Astro, one page and a 404, wearing the suite frame
-(`@superjackfruit/frontdoor`, vendored in `vendor/` beside vibekit). Outside the Bun workspace,
+(`@superjackfruitlabs/vibekit-frame`, vendored in `vendor/` beside vibekit). Outside the Bun workspace,
 with its own `package.json` and `package-lock.json`: `bun install` never looks in here.
 
 ```sh
