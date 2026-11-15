@@ -1,7 +1,7 @@
 // Shared by the scenes' small loader and their lazy renderer: which sun phase to show, the product
 // accent as a colour, and whether motion is wanted. Phase and accent come from vibekit's plain (no
 // Svelte) entry, so the scenes follow the same day as the apps.
-import { ACCENTS, ACCENT_HUES, PHASES, PRODUCT_ACCENTS, phaseAt } from '@superjackfruit/vibekit/appearance';
+import { ACCENTS, ACCENT_HUES, PHASES, PRODUCT_ACCENTS, phaseAt } from '@superjackfruitlabs/vibekit-ui/appearance';
 
 export const PRODUCT = 'superdispatch';
 
