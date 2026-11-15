@@ -1,7 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import sjlDocs from '@superjackfruit/docs-theme';
+import sjlDocs from '@superjackfruitlabs/vibekit-docs';
 
 export default defineConfig({
   site: 'https://docs.superdispatch.dev',
@@ -11,7 +11,7 @@ export default defineConfig({
       description:
         'The scheduler for SuperPipeline and AgentPod: when a card is ready, it decides which agent should take it, and records why.',
       // The suite's docs theme: vibekit's teal, the faces, the street, status badges, the footers,
-      // the 404, the edit link and llms.txt. See @superjackfruit/docs-theme's README.
+      // the 404, the edit link and llms.txt. See @superjackfruitlabs/vibekit-docs's README.
       plugins: [
         sjlDocs({
           product: 'superdispatch',
