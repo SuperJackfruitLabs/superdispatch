@@ -388,6 +388,32 @@ describe("the relay route", () => {
     expect(seen).toEqual([]);
   });
 
+  test("a delivery it could not handle just now is 503, so the relay sends it again", async () => {
+    const t = tempStore();
+    cleanups.push(t.cleanup);
+    const lines: string[] = [];
+    const handle = createHandler({
+      config: {
+        relayDeliverySecret: SECRET,
+        operatorTokenSha256: OPERATOR_TOKEN_SHA256,
+      },
+      store: {
+        ...t.store,
+        getBoard: () => {
+          throw new Error("database is locked at /var/lib/secret-path");
+        },
+      },
+      now: () => NOW,
+      nowMs: () => NOW,
+      log: (line) => lines.push(line),
+    });
+    const r = await handle(await delivery(EVENT));
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ error: "try again" });
+    expect(lines.join("\n")).toContain("answered 503");
+    expect(lines.join("\n")).not.toContain("secret-path");
+  });
+
   test("a body that is not a CloudEvent is 400; only POST reaches it", async () => {
     const { handle } = setup();
     const r = await handle(

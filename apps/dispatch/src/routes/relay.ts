@@ -19,10 +19,14 @@
  * - a bad, stale or missing signature: 401;
  * - a `card.ready` v1 that is not treaty's `card.ready.v1`, names another board, or a card id
  *   SuperPipeline never writes: 400;
+ * - a board that could not be read just now (the store failed): 503, so the relay sends it again;
  * - a SuperPipeline event for an opted-in, enabled board: 200 `{status:"accepted"}`, and the board
  *   is nudged;
  * - anything else (another producer, a board not opted in or disabled): 200 `{status:"ignored"}`,
  *   so the relay does not retry what this service will never act on.
+ *
+ * The answers are the suite's receiver status contract (treaty `schemas/README.md`): 2xx handled or
+ * permanently ignored, 503 transient and sent again, any other 4xx refused for good.
  */
 import {
   SIGNATURE_HEADER,
@@ -153,7 +157,16 @@ export function createRelayHandler(deps: RelayDeps) {
       log(`relay: event ${JSON.stringify(id)} refused: not a card.ready`);
       return Response.json({ error: "not a card.ready" }, { status: 400 });
     }
-    const enabled = deps.store.getBoard(boardId)?.enabled === true;
+    let enabled: boolean;
+    try {
+      enabled = deps.store.getBoard(boardId)?.enabled === true;
+    } catch {
+      // The error may name a path: it is not logged, only that it happened.
+      log(
+        `relay: event ${JSON.stringify(id)} answered 503: its board could not be read just now; the relay sends it again`,
+      );
+      return Response.json({ error: "try again" }, { status: 503 });
+    }
     if (!enabled) return Response.json({ status: "ignored" });
     if (ready !== null && deps.onCardReady !== undefined)
       deps.onCardReady(boardId, ready.cardId);
