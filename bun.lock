@@ -15,8 +15,8 @@
       "name": "@superjackfruitlabs/superdispatch",
       "version": "0.0.0",
       "dependencies": {
-        "@superjackfruitlabs/treaty-cloudevents": "0.0.12",
-        "@superjackfruitlabs/treaty-event-schemas": "0.0.12",
+        "@superjackfruitlabs/treaty-cloudevents": "0.0.17",
+        "@superjackfruitlabs/treaty-event-schemas": "0.0.17",
       },
     },
   },
@@ -73,9 +73,9 @@
 
     "@superjackfruitlabs/superdispatch": ["@superjackfruitlabs/superdispatch@workspace:apps/dispatch"],
 
-    "@superjackfruitlabs/treaty-cloudevents": ["@superjackfruitlabs/treaty-cloudevents@0.0.12", "", {}, "sha512-XoEhX2bllriKQ0RVxNAIP0s7Pu/sO+peL2vYcgzaIlVtYnF8JRwUjwjhfd4edOnmLswvIrHeNetADmc0uVOrJw=="],
+    "@superjackfruitlabs/treaty-cloudevents": ["@superjackfruitlabs/treaty-cloudevents@0.0.17", "", {}, "sha512-PIKkpNAs3Or8uT8aFWzlkdsjhjy3DFnTLlY98lfhpzVKLr3vf7kkthSt3wqlqXTAP2KxtfExVMybZ4DfSg5k0w=="],
 
-    "@superjackfruitlabs/treaty-event-schemas": ["@superjackfruitlabs/treaty-event-schemas@0.0.12", "", {}, "sha512-lRGqr61JUWO5nIkyUb5zWmj0zNbw0N0y0UrxfXCKoLvm/17sq6oHw1mG9cHUTJ2Jf4ek+Wz7hJkCINqqq87RfA=="],
+    "@superjackfruitlabs/treaty-event-schemas": ["@superjackfruitlabs/treaty-event-schemas@0.0.17", "", {}, "sha512-xVT21KGu0KjQ8P0AjTYGjKTwWWZztMJFdisHvSY2WOZHECv47yYEZ6qb1oXkpwi98h9a1bY/g1e92xaoMUFydA=="],
 
     "@types/bun": ["@types/bun@1.2.8", "", { "dependencies": { "bun-types": "1.2.7" } }, "sha512-t8L1RvJVUghW5V+M/fL3Thbxcs0HwNsXsnTEBEfEVqGteiJToOlZ/fyOEaR1kZsNqnu+3XA4RI/qmnX4w6+S+w=="],
 
