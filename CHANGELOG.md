@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A relayed `card.ready` is read through treaty's `card.ready.v1` schema. One that does not
+  match it, names another board than the one it was sent from, or names no SuperPipeline card id
+  is answered 400 and places nothing; before, it was accepted as a nudge. Treaty 0.0.17.
+
 - docs.superdispatch.dev: the documentation (`docs-site/`, Starlight), with `/llms.txt` and
   `/llms-full.txt`, deployed beside the landing page. Its build checks every setting, default,
   range, reason code, outcome and suggestion kind it names against the service's source, and CI

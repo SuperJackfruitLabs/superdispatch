@@ -1,10 +1,10 @@
 /**
  * `POST /v1/relay/events`: the suite's event relay delivering a SuperPipeline event.
  *
- * - `card.ready` (a card became ready to claim on a board with a placement window): the card's id
- *   is read from the event's data and the card is placed at once, alone, inside the window
- *   SuperPipeline holds it back from pull for. It is a hint, not a fact: the loop reads the board
- *   before it places anything.
+ * - `card.ready` v1 (a card became ready to claim on a board with a placement window): its data is
+ *   read through treaty's `card.ready.v1` schema, and the card it names is placed at once, alone,
+ *   inside the window SuperPipeline holds it back from pull for. It is a hint, not a fact: the
+ *   loop reads the board before it places anything.
  * - Any other event is a nudge: something happened on that board (a gate approved, a held approval
  *   released, a check failed and returned a card), so the loop looks at the board soon rather than
  *   at the next sweep. Nothing is read from its data.
@@ -17,6 +17,8 @@
  *
  * - not a CloudEvent: 400, before the signature is checked (there is no id to check it over);
  * - a bad, stale or missing signature: 401;
+ * - a `card.ready` v1 that is not treaty's `card.ready.v1`, names another board, or a card id
+ *   SuperPipeline never writes: 400;
  * - a SuperPipeline event for an opted-in, enabled board: 200 `{status:"accepted"}`, and the board
  *   is nudged;
  * - anything else (another producer, a board not opted in or disabled): 200 `{status:"ignored"}`,
@@ -24,10 +26,16 @@
  */
 import {
   SIGNATURE_HEADER,
+  eventType,
   fromBinary,
   parseType,
   verifyDelivery,
 } from "@superjackfruitlabs/treaty-cloudevents";
+import {
+  createBundle,
+  validatorFor,
+} from "@superjackfruitlabs/treaty-contracts";
+import cardReadySchema from "@superjackfruitlabs/treaty-event-schemas/superpipeline/card.ready.v1.json" with { type: "json" };
 import type { Store } from "../store/index.ts";
 import { readBody, tooLarge } from "./body.ts";
 
@@ -42,26 +50,45 @@ const BOARD_SOURCE = /^\/superpipeline\/boards\/(brd_[0-9a-f]{16})$/;
 /** A SuperPipeline card id. */
 const CARD_ID = /^card_[0-9a-f]{16}$/;
 
-/** The card a `card.ready` names, or null when the event is not one or names none it can read. */
-export function readyCardOf(type: string, body: Uint8Array): string | null {
-  let entity = "";
-  let verb = "";
+/** Treaty's schema for a `card.ready` body, and the one CloudEvents type it is read under. */
+const CARD_READY_SCHEMA = "schemas/superpipeline/card.ready.v1.json";
+export const CARD_READY_V1 = eventType(
+  { product: "superpipeline", entity: "card", verb: "ready" },
+  1,
+);
+const isCardReady = validatorFor(
+  createBundle({ [CARD_READY_SCHEMA]: cardReadySchema }),
+  CARD_READY_SCHEMA,
+);
+
+/**
+ * The card a `card.ready` v1 names: null when the event is not one, `"invalid"` when its body is
+ * not treaty's `card.ready.v1`, is another board's, or names a card id SuperPipeline never writes.
+ */
+export function readyCardOf(
+  type: string,
+  body: Uint8Array,
+  boardId: string,
+): { cardId: string } | "invalid" | null {
+  if (type !== CARD_READY_V1) return null;
+  let data: unknown;
   try {
-    ({ entity, verb } = parseType(type));
+    data = JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return null;
+    return "invalid";
   }
-  if (entity !== "card" || verb !== "ready") return null;
-  try {
-    const data: unknown = JSON.parse(new TextDecoder().decode(body));
-    const cardId =
-      typeof data === "object" && data !== null && "cardId" in data
-        ? data.cardId
-        : undefined;
-    return typeof cardId === "string" && CARD_ID.test(cardId) ? cardId : null;
-  } catch {
-    return null;
-  }
+  if (!isCardReady(data).valid || typeof data !== "object" || data === null)
+    return "invalid";
+  // The schema holds both as strings.
+  const readyBoard: unknown = Reflect.get(data, "boardId");
+  const cardId: unknown = Reflect.get(data, "cardId");
+  if (
+    readyBoard !== boardId ||
+    typeof cardId !== "string" ||
+    !CARD_ID.test(cardId)
+  )
+    return "invalid";
+  return { cardId };
 }
 
 export interface RelayDeps {
@@ -121,12 +148,15 @@ export function createRelayHandler(deps: RelayDeps) {
     if (product !== "superpipeline" || boardId === undefined) {
       return Response.json({ status: "ignored" });
     }
-    if (deps.store.getBoard(boardId)?.enabled !== true) {
-      return Response.json({ status: "ignored" });
+    const ready = readyCardOf(attributes.type ?? "", bytes, boardId);
+    if (ready === "invalid") {
+      log(`relay: event ${JSON.stringify(id)} refused: not a card.ready`);
+      return Response.json({ error: "not a card.ready" }, { status: 400 });
     }
-    const cardId = readyCardOf(attributes.type ?? "", bytes);
-    if (cardId !== null && deps.onCardReady !== undefined)
-      deps.onCardReady(boardId, cardId);
+    const enabled = deps.store.getBoard(boardId)?.enabled === true;
+    if (!enabled) return Response.json({ status: "ignored" });
+    if (ready !== null && deps.onCardReady !== undefined)
+      deps.onCardReady(boardId, ready.cardId);
     else deps.onBoardEvent?.(boardId);
     return Response.json({ status: "accepted" });
   };

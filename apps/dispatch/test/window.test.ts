@@ -44,6 +44,18 @@ const rosterEntry = (agent: string): RosterEntry => ({
 });
 
 const encoded = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
+
+/** A `card.ready` body as treaty's `card.ready.v1` holds it. */
+const readyBody = (over: Record<string, unknown> = {}) => ({
+  event: "card.ready",
+  boardId: BOARD,
+  cardId: CARD,
+  stageKey: "build",
+  readyAt: "2026-11-13T09:00:00.000Z",
+  placementWindowUntil: "2026-11-13T09:00:20.000Z",
+  ts: "2026-11-13T09:00:00.000Z",
+  ...over,
+});
 const type = (entity: string, verb: string) =>
   eventType({ product: "superpipeline", entity, verb }, 1);
 
@@ -329,25 +341,40 @@ describe("the relay route", () => {
 
   test("a card.ready places its card, and nudges nothing", async () => {
     const { handle, nudged, ready } = setup();
-    const r = await handle(
-      await delivery("card", "ready", { event: "card.ready", cardId: CARD }),
-    );
+    const r = await handle(await delivery("card", "ready", readyBody()));
     expect(await r.json()).toEqual({ status: "accepted" });
     expect(ready).toEqual([`${BOARD} ${CARD}`]);
     expect(nudged).toEqual([]);
   });
 
-  test("a card.ready naming no card it can read is a nudge; so is any other event", async () => {
+  test("a card.ready that is not treaty's card.ready.v1 is 400, and places and nudges nothing", async () => {
     const { handle, nudged, ready } = setup();
-    await handle(await delivery("card", "ready", { cardId: "nope" }));
+    const { stageKey: _s, ...noStage } = readyBody();
+    for (const body of [
+      { cardId: CARD },
+      noStage,
+      readyBody({ event: "card.moved" }),
+      readyBody({ readyAt: "yesterday" }),
+      readyBody({ cardId: "" }),
+      // Valid by the schema, but not this board's, or not a card id SuperPipeline writes.
+      readyBody({ boardId: "brd_00000000000000b2" }),
+      readyBody({ cardId: "nope" }),
+    ]) {
+      const r = await handle(await delivery("card", "ready", body));
+      expect(r.status).toBe(400);
+      expect(await r.json()).toEqual({ error: "not a card.ready" });
+    }
+    expect(ready).toEqual([]);
+    expect(nudged).toEqual([]);
+  });
+
+  test("any other event is a nudge", async () => {
+    const { handle, nudged, ready } = setup();
     await handle(
-      await delivery("gate", "pending", {
-        event: "gate.pending",
-        cardId: CARD,
-      }),
+      await delivery("card", "moved", { event: "card.moved", cardId: CARD }),
     );
     expect(ready).toEqual([]);
-    expect(nudged).toEqual([BOARD, BOARD]);
+    expect(nudged).toEqual([BOARD]);
   });
 
   test("opting a board in or out tells the runner, so its window follows", async () => {
@@ -362,16 +389,28 @@ describe("the relay route", () => {
     expect(nudged).toEqual([`changed ${BOARD}`, `changed ${BOARD}`, BOARD]);
   });
 
-  test("readyCardOf reads only a card.ready's card id", () => {
-    expect(readyCardOf(type("card", "ready"), encoded({ cardId: CARD }))).toBe(
-      CARD,
-    );
+  test("readyCardOf reads only a card.ready's card id, through treaty's schema", () => {
     expect(
-      readyCardOf(type("card", "created"), encoded({ cardId: CARD })),
-    ).toBeNull();
-    expect(readyCardOf("not a type", encoded({ cardId: CARD }))).toBeNull();
+      readyCardOf(type("card", "ready"), encoded(readyBody()), BOARD),
+    ).toEqual({
+      cardId: CARD,
+    });
     expect(
-      readyCardOf(type("card", "ready"), new TextEncoder().encode("{")),
+      readyCardOf(type("card", "created"), encoded(readyBody()), BOARD),
     ).toBeNull();
+    expect(readyCardOf("not a type", encoded(readyBody()), BOARD)).toBeNull();
+    expect(
+      readyCardOf(
+        "com.superjackfruit.superpipeline.card.ready.v2",
+        encoded(readyBody()),
+        BOARD,
+      ),
+    ).toBeNull();
+    expect(
+      readyCardOf(type("card", "ready"), new TextEncoder().encode("{"), BOARD),
+    ).toBe("invalid");
+    expect(
+      readyCardOf(type("card", "ready"), encoded({ cardId: CARD }), BOARD),
+    ).toBe("invalid");
   });
 });
