@@ -8,6 +8,8 @@
 - Relay deliveries follow the suite's receiver status contract: a delivery whose board could not
   be read just now (the store failed) is answered 503, so the relay sends it again, instead of an
   unhandled 500.
+- The relay subscriber the docs describe takes card events only (`evt.*.superpipeline.card.>`):
+  the service uses no other, so it is sent no other, approval requests included.
 
 - docs.superdispatch.dev: the documentation (`docs-site/`, Starlight), with `/llms.txt` and
   `/llms-full.txt`, deployed beside the landing page. Its build checks every setting, default,

@@ -5,9 +5,10 @@
  *   read through treaty's `card.ready.v1` schema, and the card it names is placed at once, alone,
  *   inside the window SuperPipeline holds it back from pull for. It is a hint, not a fact: the
  *   loop reads the board before it places anything.
- * - Any other event is a nudge: something happened on that board (a gate approved, a held approval
- *   released, a check failed and returned a card), so the loop looks at the board soon rather than
- *   at the next sweep. Nothing is read from its data.
+ * - Any other event is a nudge: something happened on that board, so the loop looks at the board
+ *   soon rather than at the next sweep. Nothing is read from its data. The relay's subscriber for
+ *   this service takes card events only (`evt.*.superpipeline.card.>`), so other events reach it
+ *   only from a relay configured wider.
  *
  * The sweep stays the guarantee.
  *
