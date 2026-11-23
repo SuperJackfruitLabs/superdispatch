@@ -3,7 +3,7 @@ title: Production
 description: How a SuperDispatch release reaches production, what the release checks, how to roll back, and where its settings and store live.
 ---
 
-v0.0.1 runs in production and places cards on every board the operator has opted in. This page
+v0.0.2 runs in production and places cards on every board the operator has opted in. This page
 follows a release from tag to smoke test, then gives you the recovery commands if it does not stay
 healthy.
 
@@ -49,7 +49,7 @@ If you need to verify or recover production yourself, become root on the host an
 command that matches the job:
 
 ```sh
-bash /opt/superdispatch/deploy/production/smoke.sh v0.0.1      # the checks again, changing nothing
+bash /opt/superdispatch/deploy/production/smoke.sh v0.0.2      # the checks again, changing nothing
 bash /opt/superdispatch/deploy/production/rollback.sh v0.0.2   # put back the release before v0.0.2
 cd /opt/superdispatch && SUPERDISPATCH_TAG=$(cat /etc/superdispatch/deployed) \
   docker compose -f deploy/production/compose.yml logs --tail 20 dispatch

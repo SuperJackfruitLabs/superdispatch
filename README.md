@@ -510,7 +510,7 @@ build had moved the schema, because a build refuses a database written by a newe
 On the production host, as root:
 
 ```sh
-bash /opt/superdispatch/deploy/production/smoke.sh v0.0.1      # the checks again, changing nothing
+bash /opt/superdispatch/deploy/production/smoke.sh v0.0.2      # the checks again, changing nothing
 bash /opt/superdispatch/deploy/production/rollback.sh v0.0.2   # put back the release before v0.0.2
 cd /opt/superdispatch && SUPERDISPATCH_TAG=$(cat /etc/superdispatch/deployed) \
   docker compose -f deploy/production/compose.yml logs --tail 20 dispatch
