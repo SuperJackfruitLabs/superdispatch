@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.0.2 — 2026-11-23
+
 - A relayed `card.ready` is read through treaty's `card.ready.v1` schema. One that does not
   match it, names another board than the one it was sent from, or names no SuperPipeline card id
   is answered 400 and places nothing; before, it was accepted as a nudge. Treaty 0.0.17.
