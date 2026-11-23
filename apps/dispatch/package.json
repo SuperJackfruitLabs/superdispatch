@@ -9,7 +9,8 @@
     "start": "bun src/main.ts"
   },
   "dependencies": {
-    "@superjackfruitlabs/treaty-cloudevents": "0.0.12",
-    "@superjackfruitlabs/treaty-event-schemas": "0.0.12"
+    "@superjackfruitlabs/treaty-cloudevents": "0.0.17",
+    "@superjackfruitlabs/treaty-contracts": "0.0.17",
+    "@superjackfruitlabs/treaty-event-schemas": "0.0.17"
   }
 }

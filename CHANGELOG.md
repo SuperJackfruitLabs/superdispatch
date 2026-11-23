@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A relayed `card.ready` is read through treaty's `card.ready.v1` schema. One that does not
+  match it, names another board than the one it was sent from, or names no SuperPipeline card id
+  is answered 400 and places nothing; before, it was accepted as a nudge. Treaty 0.0.17.
+- Relay deliveries follow the suite's receiver status contract: a delivery whose board could not
+  be read just now (the store failed) is answered 503, so the relay sends it again, instead of an
+  unhandled 500.
+- The relay subscriber the docs describe takes card events only (`evt.*.superpipeline.card.>`):
+  the service uses no other, so it is sent no other, approval requests included.
+
 - docs.superdispatch.dev: the documentation (`docs-site/`, Starlight), with `/llms.txt` and
   `/llms-full.txt`, deployed beside the landing page. Its build checks every setting, default,
   range, reason code, outcome and suggestion kind it names against the service's source, and CI

@@ -411,10 +411,10 @@ What it needs of the others:
 - **SuperWitness** (optional): `GET /v1/runs`, which any token for its audience may read; no grant
   scope. Runs carry `stage_key` only from a SuperPipeline that reports it
   (`SUPERWITNESS_REPORT_STAGE`).
-- **The event relay** (optional): a subscriber for `evt.*.superpipeline.>` delivering to
+- **The event relay** (optional): a subscriber for `evt.*.superpipeline.card.>` delivering to
   `/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET`. Without it the sweep alone
   places cards. A `card.ready` places its card at once, alone, with the board's cached roster;
-  any other event looks at its board two seconds later.
+  any other card event looks at its board two seconds later. It takes card events only.
 
 ### The placement window
 

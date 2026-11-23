@@ -98,10 +98,15 @@ no grant scope. Runs carry `stage_key` only from a SuperPipeline that reports it
 When that history is present, scoring gains a stage record. When it is absent, the formula carries
 on without pretending the missing history was evidence.
 
-**The event relay** is optional. Configure a subscriber for `evt.*.superpipeline.>` delivering to
+**The event relay** is optional. Configure a subscriber for `evt.*.superpipeline.card.>` delivering to
 `/v1/relay/events`, signed with `TREATY_RELAY_DELIVERY_SECRET` ([how the relay delivers and
 signs](https://treaty.superjackfruit.com/relay/#delivery-and-retries)). A [`card.ready`](https://treaty.superjackfruit.com/events/card-ready-v1/) places its card at
-once, alone, with the board's cached roster; any other event looks at its board two seconds later.
+once, alone, with the board's cached roster; any other card event looks at its board two seconds later. It takes only card events: what it does not use, it is not sent.
+A `card.ready` is read through treaty's `card.ready.v1` schema: one that does not match it, names
+another board than its source, or names no SuperPipeline card id is answered `400` and acts on
+nothing. A board that cannot be read just now is answered `503`, so the relay sends the event
+again; every answer follows the suite's [receiver status
+contract](https://treaty.superjackfruit.com/relay/).
 Without the relay the sweep alone places cards, and most are lost to pull before it comes round.
 
 With the relay, a ready card gets an immediate placement attempt. Without it, the service still
