@@ -46,8 +46,8 @@ there and copy them here.
 **The sidebar uses the suite's groups**: Start, Use it, Build on it, Run it, Reference. The theme warns
 at build time when a top-level group is anything else.
 
-**It says only what ships**, and says where the product is: early, v0.0.1 in production with no
-board opted in yet. `status.md` lists what it does not do. Nothing here describes planned work as
+**It says only what ships**, and says where the product is: early, v0.0.2 in production, placing
+cards on the boards the operator has opted in. `status.md` lists what it does not do. Nothing here describes planned work as
 if it were done.
 
 **For agents**: `/llms.txt`, `/llms-full.txt` and `/llms-small.txt` (`starlight-llms-txt`).
