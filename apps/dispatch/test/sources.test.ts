@@ -11,7 +11,14 @@ import {
   PAGE_SIZE,
   type ServiceTokens,
 } from "../src/sources/index.ts";
-import { fakeFetch } from "./helpers.ts";
+import {
+  CASES,
+  contractBoard,
+  fakeFetch,
+  record,
+  rows,
+  treatyCase,
+} from "./helpers.ts";
 
 const CREDENTIAL = { id: "svc_0123456789abcdef0123", secret: "cred-secret" };
 const BOARD = "brd_00000000000000b1";
@@ -229,15 +236,14 @@ describe("accounts", () => {
   });
 });
 
-const BOARD_JSON = {
-  boardId: BOARD,
-  stages: [
+const BOARD_JSON = contractBoard(
+  BOARD,
+  [
     { key: "build", ownerKind: "capability", owner: "code" },
     { key: "review", requires: { all: ["review"] } },
     { key: "approve", ownerKind: "human" },
-    { name: "no key" },
   ],
-  cards: [
+  [
     {
       id: CARD,
       currentStageKey: "build",
@@ -252,6 +258,7 @@ const BOARD_JSON = {
         agentId: "agt_b",
         reservedUntil: "2026-11-12T10:01:00Z",
         decisionId: "pld_x",
+        reservedBy: "prn_svc",
       },
     },
     {
@@ -259,11 +266,14 @@ const BOARD_JSON = {
       currentStageKey: "approve",
       state: "working",
       currentRunId: "run_1",
+      lastAgentId: null,
+      attemptCount: 0,
+      priority: 0,
+      createdAt: "2026-11-12T09:00:00Z",
       archivedAt: "2026-11-12T09:00:00Z",
     },
-    { title: "no id" },
   ],
-};
+);
 
 describe("superpipeline", () => {
   const sp = (routes: Parameters<typeof fakeFetch>[0]) => {
@@ -280,7 +290,7 @@ describe("superpipeline", () => {
     };
   };
 
-  test("reads a board's stages and cards with this service's token, leaving out what it cannot read", async () => {
+  test("reads a board's stages and cards with this service's token", async () => {
     const { client, seen } = sp({
       [`GET /v1/boards/${BOARD}`]: { json: BOARD_JSON },
     });
@@ -333,7 +343,7 @@ describe("superpipeline", () => {
           lastAgentId: null,
           attemptCount: 0,
           priority: 0,
-          createdAt: "",
+          createdAt: "2026-11-12T09:00:00.000Z",
           archived: true,
           reservation: null,
         },
@@ -346,7 +356,7 @@ describe("superpipeline", () => {
     });
   });
 
-  test("a 401 drops the held token and throws; a malformed board throws", async () => {
+  test("a 401 drops the held token and throws; a board treaty's contract refuses throws", async () => {
     const refused = sp({
       [`GET /v1/boards/${BOARD}`]: {
         status: 401,
@@ -368,8 +378,48 @@ describe("superpipeline", () => {
       [`GET /v1/boards/${BOARD}`]: { json: { cards: [] } },
     });
     expect((await thrown(malformed.client.board(BOARD))).code).toBe(
-      "malformed_response",
+      "contract_refused",
     );
+  });
+
+  test("a board with one card off the contract is refused whole, never read in part, and the error names where but not what", async () => {
+    // The old reader left out a card it could not read; the contract refuses the board.
+    const secretish = "value-that-must-not-be-quoted";
+    const board = contractBoard(
+      BOARD,
+      [{ key: "build", ownerKind: "capability", owner: "code" }],
+      [
+        { id: CARD, currentStageKey: "build", state: "submitted" },
+        {
+          id: "card_00000000000000c2",
+          currentStageKey: "build",
+          state: "submitted",
+          attemptCount: secretish,
+        },
+      ],
+    );
+    const { client } = sp({ [`GET /v1/boards/${BOARD}`]: { json: board } });
+    const e = await thrown(client.board(BOARD));
+    expect([e.product, e.status, e.code, e.at]).toEqual([
+      "superpipeline",
+      200,
+      "contract_refused",
+      "#/cards/1/attemptCount",
+    ]);
+    expect(e.message).not.toContain(secretish);
+  });
+
+  test("treaty's own board cases are read", async () => {
+    for (const name of [
+      "a board with a held card, a card in review and an archived card",
+      "an empty board with an intro and a decision timeout",
+    ]) {
+      const json = treatyCase(CASES.boardRead, "readBoard", "200", name);
+      const { client } = sp({ [`GET /v1/boards/${BOARD}`]: { json } });
+      const board = await client.board(BOARD);
+      expect(board.cards.length).toBe(rows(json.cards).length);
+      expect(board.stages.length).toBe(rows(json.stages).length);
+    }
   });
 
   test("reads a card's eligibility: the card's reasons and every agent's", async () => {
@@ -379,6 +429,7 @@ describe("superpipeline", () => {
           cardId: CARD,
           stageKey: "build",
           reasons: [],
+          placementWindowUntil: null,
           agents: [
             {
               agentId: "agt_a",
@@ -392,9 +443,8 @@ describe("superpipeline", () => {
               name: "B",
               principalId: null,
               eligible: false,
-              reasons: ["grant_denied", 7],
+              reasons: ["grant_denied"],
             },
-            { name: "no id" },
           ],
         },
       },
@@ -412,6 +462,16 @@ describe("superpipeline", () => {
         },
       ],
     });
+  });
+
+  test("an eligibility answer off the contract is refused, not read as nobody eligible", async () => {
+    const body = treatyCase(CASES.placement, "readCardEligibility");
+    record(rows(body.agents)[0]).eligible = "yes";
+    const { client } = sp({
+      [`GET /v1/boards/${BOARD}/cards/${CARD}/eligibility`]: { json: body },
+    });
+    const e = await thrown(client.eligibility(BOARD, CARD));
+    expect([e.code, e.at]).toEqual(["contract_refused", "#/agents/0/eligible"]);
   });
 
   test("reserves with the agent, the window and the decision, and reads the hold's end", async () => {
@@ -442,6 +502,44 @@ describe("superpipeline", () => {
       ttlSeconds: 60,
       decisionId: "pld_1",
     });
+  });
+
+  test("a hold answered off the contract is recorded as refused, never as held", async () => {
+    const { client } = sp({
+      [`PUT /v1/boards/${BOARD}/cards/${CARD}/reservation`]: {
+        json: {
+          reservation: {
+            agentId: "agt_a",
+            reservedUntil: "2026-11-12T10:01:00Z",
+          },
+        },
+      },
+    });
+    expect(
+      await client.reserve(BOARD, CARD, {
+        agentId: "agt_a",
+        ttlSeconds: 60,
+        decisionId: "pld_1",
+      }),
+    ).toEqual({ ok: false, status: 200, code: "contract_refused" });
+  });
+
+  test("the placement window is set, and an answer off the contract throws", async () => {
+    const ok = sp({
+      [`PUT /v1/boards/${BOARD}/scheduling`]: {
+        json: treatyCase(CASES.placement, "setScheduling"),
+      },
+    });
+    await ok.client.setPlacementWindow(BOARD, 10);
+    expect(ok.seen[0]?.body).toEqual({ placementWindowSeconds: 10 });
+    const off = sp({
+      [`PUT /v1/boards/${BOARD}/scheduling`]: {
+        json: { placementWindowSeconds: 10 },
+      },
+    });
+    expect((await thrown(off.client.setPlacementWindow(BOARD, 10))).code).toBe(
+      "contract_refused",
+    );
   });
 
   test("a refused reservation is an answer, with SuperPipeline's code, or the status when it gave none", async () => {
@@ -488,39 +586,46 @@ describe("superpipeline", () => {
 });
 
 describe("agentpod", () => {
-  test("reads a board's roster; an unknown readiness is not ready and an unknown load is busy", async () => {
+  const hub = (json: unknown) => {
     const f = fakeFetch({
-      [`GET /api/bridge/boards/${BOARD}/roster`]: {
-        json: {
-          boardId: BOARD,
-          agents: [
-            {
-              key: "a",
-              stationId: "stn_a",
-              principalId: "prn_a",
-              enabled: true,
-              ready: true,
-              busy: false,
-              lastDispatchedAt: "2026-11-12T09:00:00Z",
-              reason: null,
-            },
-            {
-              key: "b",
-              stationId: "stn_b",
-              principalId: "",
-              enabled: "yes",
-              ready: "yes",
-            },
-            { stationId: "no key" },
-          ],
-        },
-      },
+      [`GET /api/bridge/boards/${BOARD}/roster`]: { json },
     });
     const tokens = countingTokens();
-    const client = createAgentpod({
-      baseUrl: "http://hub:3001",
-      tokens,
-      fetch: f.fetch,
+    return {
+      ...f,
+      client: createAgentpod({
+        baseUrl: "http://hub:3001",
+        tokens,
+        fetch: f.fetch,
+      }),
+    };
+  };
+
+  test("reads a board's roster with this service's token", async () => {
+    const { client, seen } = hub({
+      boardId: BOARD,
+      agents: [
+        {
+          key: "a",
+          stationId: "stn_a",
+          principalId: "prn_a",
+          enabled: true,
+          ready: true,
+          busy: false,
+          lastDispatchedAt: "2026-11-12T09:00:00Z",
+          reason: null,
+        },
+        {
+          key: "b",
+          stationId: "stn_b",
+          principalId: null,
+          enabled: false,
+          ready: false,
+          busy: true,
+          lastDispatchedAt: null,
+          reason: "station_offline",
+        },
+      ],
     });
     expect(await client.roster(BOARD)).toEqual([
       {
@@ -542,7 +647,32 @@ describe("agentpod", () => {
         lastDispatchedAt: null,
       },
     ]);
-    expect(f.seen[0]?.authorization).toBe("Bearer token-1");
+    expect(seen[0]?.authorization).toBe("Bearer token-1");
+  });
+
+  test("treaty's own roster cases are read, row for row", async () => {
+    for (const name of [
+      "a ready agent, a busy one and a disabled row",
+      "a board with no bridge rows",
+    ]) {
+      const json = treatyCase(CASES.catalog, "readBoardRoster", "200", name);
+      const { client } = hub({ ...json, boardId: BOARD });
+      expect((await client.roster(BOARD)).length).toBe(
+        rows(json.agents).length,
+      );
+    }
+  });
+
+  test("a roster off the contract is refused whole: an unknown readiness is never read as ready or idle", async () => {
+    const json = treatyCase(CASES.catalog, "readBoardRoster");
+    record(rows(json.agents)[0]).ready = "yes";
+    const { client } = hub({ ...json, boardId: BOARD });
+    const e = await thrown(client.roster(BOARD));
+    expect([e.product, e.code, e.at]).toEqual([
+      "agentpod",
+      "contract_refused",
+      "#/agents/0/ready",
+    ]);
   });
 
   test("a hub without the read, or one that refuses, throws; a 401 drops the token", async () => {

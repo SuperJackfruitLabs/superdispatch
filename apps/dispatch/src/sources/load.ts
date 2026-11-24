@@ -13,10 +13,10 @@
  *   hand when the station is `busy` on any board, else none; capacity 1, because AgentPod reports
  *   busy or not and nothing more; last seen when the station last took work.
  * - `directLoad`, from SuperPipeline's `GET /v1/agents/load` for an agent that claims with its own
- *   token (`source: "direct"`): the cards it holds over every board, its `capacity` (1 when none
- *   is reported, or it is not a whole number above 0), and healthy when it was last heard from on
- *   a run within `DIRECT_SEEN_WITHIN_MS`. An agent never heard from is not healthy: nothing says
- *   it is there. It keeps working by pull, and becomes a candidate once it has run.
+ *   token (`source: "direct"`): the cards it holds over every board, its `capacity` as reported
+ *   (a capacity of 0 takes nothing, so such an agent is never idle), and healthy when it was last
+ *   heard from on a run within `DIRECT_SEEN_WITHIN_MS`. An agent never heard from is not healthy:
+ *   nothing says it is there. It keeps working by pull, and becomes a candidate once it has run.
  */
 import type { RosterEntry } from "./agentpod.ts";
 import type { DirectLoadEntry } from "./superpipeline.ts";
@@ -30,7 +30,7 @@ export interface AgentLoad {
   readonly agentId: string;
   /** Cards the agent has in hand now, anywhere in the workspace. */
   readonly inFlight: number;
-  /** The most it may have in hand at once; at least 1. */
+  /** The most it may have in hand at once; 0 takes nothing. */
   readonly capacity: number;
   /** It can be expected to take a card held for it now. */
   readonly healthy: boolean;
@@ -67,18 +67,11 @@ export function rosterLoad(
 export function directLoad(entry: DirectLoadEntry, nowMs: number): AgentLoad {
   const seenMs =
     entry.lastHeartbeatAt === null ? NaN : Date.parse(entry.lastHeartbeatAt);
-  const { capacity, inFlight } = entry;
   return {
     agentId: entry.agentId,
-    // An unknown load is not an idle agent: anything but a whole number reads as no room.
-    inFlight:
-      inFlight !== null && Number.isInteger(inFlight) && inFlight >= 0
-        ? inFlight
-        : Number.MAX_SAFE_INTEGER,
-    capacity:
-      capacity !== null && Number.isInteger(capacity) && capacity > 0
-        ? capacity
-        : 1,
+    // Treaty's contract holds both as whole numbers, 0 or more; a capacity of 0 takes nothing.
+    inFlight: entry.inFlight,
+    capacity: entry.capacity,
     healthy:
       Number.isFinite(seenMs) &&
       seenMs - nowMs <= CLOCK_SKEW_MS &&

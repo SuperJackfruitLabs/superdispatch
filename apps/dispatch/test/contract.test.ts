@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { verifyDelivery } from "@superjackfruitlabs/treaty-cloudevents";
 import { readManifest } from "@superjackfruitlabs/treaty-contracts/node";
 import { SCHEMA_BASE } from "@superjackfruitlabs/treaty-event-schemas";
+import { CONTRACTS } from "../src/sources/contracts.ts";
 import { at, record } from "./helpers.ts";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
@@ -29,4 +30,11 @@ test("every treaty package is pinned to treaty.json's release, and that release 
   for (const [name, version] of treatyPins)
     expect({ name, version }).toEqual({ name, version: pin });
   expect(readManifest().treaty).toBe(String(pin));
+});
+
+// The crossings the sources hold to a contract are the ones treaty.json says it consumes.
+test("treaty.json consumes every crossing the sources validate against", () => {
+  const consumes = at(json("treaty.json"), "consumes");
+  for (const crossing of Object.keys(CONTRACTS))
+    expect(consumes).toContain(crossing);
 });

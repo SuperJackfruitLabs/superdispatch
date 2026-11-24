@@ -28,7 +28,14 @@ import {
   type StationCaps,
   type Superpipeline,
 } from "../src/sources/index.ts";
-import { fakeFetch, tempStore } from "./helpers.ts";
+import {
+  CASES,
+  contractBoard,
+  fakeFetch,
+  rows,
+  tempStore,
+  treatyCase,
+} from "./helpers.ts";
 
 const NOW = Date.parse("2026-11-13T12:00:00.000Z");
 const CARD = {
@@ -276,7 +283,7 @@ describe("sources: what each product says", () => {
     expect(placementOf({ isolation: "vm" })).toEqual({ isolation: "sandbox" });
   });
 
-  test("a registry row is read; a malformed fact is left out and an unknown proof is the weakest", () => {
+  test("a registry row is read as the contract holds it, an instance dropped", () => {
     expect(
       stationCapsOf({
         stationId: "stn_1",
@@ -284,11 +291,7 @@ describe("sources: what each product says", () => {
         harness: "salaam",
         isolation: { level: "sandbox", runtime: "runsc", proof: "installed" },
         model: { id: "gpt-5", proof: "probed" },
-        tools: [
-          { id: "cli:stk", proof: "probed" },
-          { id: 7 },
-          { id: "mcp:x", proof: "certain" },
-        ],
+        tools: [{ id: "cli:stk", proof: "probed" }],
         credentials: [
           {
             name: "forge:github",
@@ -303,24 +306,20 @@ describe("sources: what each product says", () => {
       harness: "salaam",
       isolation: { level: "sandbox", proof: "installed", runtime: "runsc" },
       model: { id: "gpt-5", proof: "probed" },
-      tools: [
-        { id: "cli:stk", proof: "probed" },
-        { id: "mcp:x", proof: "declared" },
-      ],
+      tools: [{ id: "cli:stk", proof: "probed" }],
       credentials: [{ name: "forge:github", proof: "probed" }],
     });
-    expect(stationCapsOf({ isolation: null })).toBeNull();
     expect(
-      stationCapsOf({ stationId: "s", isolation: null, model: null }),
-    ).toEqual({
-      stationId: "s",
-      principalId: null,
-      harness: null,
-      isolation: null,
-      model: null,
-      tools: [],
-      credentials: [],
-    });
+      stationCapsOf({
+        stationId: "s",
+        principalId: null,
+        harness: "hermes",
+        isolation: { level: "host", runtime: null, proof: "declared" },
+        model: null,
+        tools: [],
+        credentials: [],
+      }).model,
+    ).toBeNull();
   });
 
   const tokens: ServiceTokens = {
@@ -331,8 +330,9 @@ describe("sources: what each product says", () => {
   test("SuperPipeline's board read carries each stage's placement", async () => {
     const f = fakeFetch({
       [`GET /v1/boards/${CARD.boardId}`]: {
-        json: {
-          stages: [
+        json: contractBoard(
+          CARD.boardId,
+          [
             {
               key: "build",
               ownerKind: "capability",
@@ -341,8 +341,8 @@ describe("sources: what each product says", () => {
             },
             { key: "ship", ownerKind: "capability", owner: "code" },
           ],
-          cards: [],
-        },
+          [],
+        ),
       },
     });
     const board = await createSuperpipeline({
@@ -356,19 +356,39 @@ describe("sources: what each product says", () => {
     ]);
   });
 
-  test("AgentPod's registry read: by station; null from a hub without it; a refusal throws", async () => {
-    const ok = fakeFetch({
-      "GET /api/catalog/stations": {
-        json: { stations: [{ stationId: "stn_1" }, { nope: 1 }] },
-      },
-    });
+  test("AgentPod's registry read: by station; null from a hub without it; a refusal or a body off the contract throws", async () => {
+    const json = treatyCase(CASES.catalog, "listStationCapabilities");
+    const ok = fakeFetch({ "GET /api/catalog/stations": { json } });
     const read = await createAgentpod({
       baseUrl: "http://hub",
       tokens,
       fetch: ok.fetch,
     }).stationCapabilities();
-    expect([...(read?.keys() ?? [])]).toEqual(["stn_1"]);
+    expect([...(read?.keys() ?? [])]).toEqual(
+      rows(json.stations).map((r) => String(r.stationId)),
+    );
     expect(ok.seen[0]?.authorization).toBe("Bearer tok");
+
+    // A row the old reader left out is now a refused body: an unknown proof is not "declared".
+    const off = fakeFetch({
+      "GET /api/catalog/stations": {
+        json: { stations: [...rows(json.stations), { stationId: "stn_x" }] },
+      },
+    });
+    const refusal = await createAgentpod({
+      baseUrl: "http://hub",
+      tokens,
+      fetch: off.fetch,
+    })
+      .stationCapabilities()
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(refusal).toBeInstanceOf(SourceError);
+    expect(refusal instanceof SourceError && refusal.code).toBe(
+      "contract_refused",
+    );
 
     const old = fakeFetch({
       "GET /api/catalog/stations": {

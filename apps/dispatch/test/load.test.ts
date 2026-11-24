@@ -9,7 +9,7 @@ import {
   rosterLoad,
   type DirectLoadEntry,
 } from "../src/sources/index.ts";
-import { fakeFetch } from "./helpers.ts";
+import { CASES, fakeFetch, treatyCase } from "./helpers.ts";
 
 /**
  * The shared shape of an agent's load and health, `{agentId, inFlight, capacity, healthy,
@@ -86,19 +86,9 @@ describe("the direct adapter", () => {
     ).toBe(false);
   });
 
-  test("capacity is 1 unless reported as a whole number above 0", () => {
-    for (const capacity of [null, 0]) {
-      const load = directLoad(reported({ capacity, inFlight: 1 }), NOW);
-      expect({ capacity, got: load.capacity, idle: isIdle(load) }).toEqual({
-        capacity,
-        got: 1,
-        idle: false,
-      });
-    }
-  });
-
-  test("an unknown load is no room, not an idle agent", () => {
-    expect(isIdle(directLoad(reported({ inFlight: null }), NOW))).toBe(false);
+  test("a capacity of 0 takes nothing: never idle, even with nothing in hand", () => {
+    const load = directLoad(reported({ capacity: 0, inFlight: 0 }), NOW);
+    expect([load.capacity, isIdle(load)]).toEqual([0, false]);
   });
 
   test("healthy only when heard from within the window: never, too long ago, or from the future is not", () => {
@@ -111,6 +101,16 @@ describe("the direct adapter", () => {
     expect(healthy(iso(NOW + CLOCK_SKEW_MS + 1))).toBe(false);
   });
 });
+
+/** The `SourceError` a read throws; a test failure when it throws nothing, or something else. */
+async function refusal(read: Promise<unknown>): Promise<SourceError> {
+  const error = await read.then(
+    () => null,
+    (e: unknown) => e,
+  );
+  if (!(error instanceof SourceError)) throw new Error("no SourceError");
+  return error;
+}
 
 describe("SuperPipeline's load read", () => {
   const client = (routes: Parameters<typeof fakeFetch>[0]) => {
@@ -125,43 +125,36 @@ describe("SuperPipeline's load read", () => {
     };
   };
 
-  test("reads every agent, leaving out a row with no id and anything that is not a whole number", async () => {
-    const { sp, seen } = client({
-      "GET /v1/agents/load": {
-        json: {
-          agents: [
-            {
-              agentId: "agt_a",
-              principalId: "prn_a",
-              inFlight: 2,
-              capacity: 3,
-              lastHeartbeatAt: "2026-11-13T11:55:00Z",
-            },
-            {
-              agentId: "agt_b",
-              principalId: null,
-              inFlight: "many",
-              capacity: 1.5,
-              lastHeartbeatAt: "yesterday",
-            },
-            { inFlight: 0 },
-          ],
-        },
-      },
-    });
+  test("reads every agent as treaty's contract holds it: treaty's own case, row for row", async () => {
+    const json = treatyCase(CASES.placement, "readAgentLoad");
+    const { sp, seen } = client({ "GET /v1/agents/load": { json } });
     expect(await sp.agentLoad()).toEqual([
       {
-        agentId: "agt_a",
-        principalId: "prn_a",
-        inFlight: 2,
-        capacity: 3,
-        lastHeartbeatAt: "2026-11-13T11:55:00.000Z",
+        agentId: "agt_3f9a1c0b7e24d5a6",
+        principalId: "prn_0123456789abcdef0a01",
+        inFlight: 1,
+        capacity: 2,
+        lastHeartbeatAt: "2026-11-23T10:04:30.000Z",
       },
       {
-        agentId: "agt_b",
+        agentId: "agt_7b1e2d3c4a5f6e70",
         principalId: null,
-        inFlight: null,
-        capacity: null,
+        inFlight: 3,
+        capacity: 3,
+        lastHeartbeatAt: "2026-11-23T10:04:55.000Z",
+      },
+      {
+        agentId: "agt_0c1d2e3f4a5b6c7d",
+        principalId: "prn_0123456789abcdef0a02",
+        inFlight: 0,
+        capacity: 1,
+        lastHeartbeatAt: null,
+      },
+      {
+        agentId: "agt_1d2e3f4a5b6c7d8e",
+        principalId: "prn_0123456789abcdef0a03",
+        inFlight: 0,
+        capacity: 0,
         lastHeartbeatAt: null,
       },
     ]);
@@ -170,16 +163,36 @@ describe("SuperPipeline's load read", () => {
     ]);
   });
 
-  test("a SuperPipeline without the read, or a malformed answer, throws", async () => {
-    for (const answer of [{ status: 404 }, { json: { agents: "none" } }]) {
-      const { sp } = client({ "GET /v1/agents/load": answer });
-      let error: unknown = null;
-      try {
-        await sp.agentLoad();
-      } catch (e) {
-        error = e;
-      }
-      expect(error).toBeInstanceOf(SourceError);
+  test("an answer off the contract is refused whole, never read in part: a null or fractional count, a missing heartbeat", async () => {
+    const agent = {
+      agentId: "agt_a",
+      principalId: null,
+      inFlight: 0,
+      capacity: 1,
+      lastHeartbeatAt: null,
+    };
+    const { lastHeartbeatAt: _, ...noHeartbeat } = agent;
+    for (const [bad, where] of [
+      [{ ...agent, inFlight: null }, "#/agents/1/inFlight"],
+      [{ ...agent, capacity: null }, "#/agents/1/capacity"],
+      [{ ...agent, capacity: 1.5 }, "#/agents/1/capacity"],
+      [{ ...agent, inFlight: -1 }, "#/agents/1/inFlight"],
+      [noHeartbeat, "#/agents/1"],
+      [
+        { ...agent, lastHeartbeatAt: "yesterday" },
+        "#/agents/1/lastHeartbeatAt",
+      ],
+    ] as const) {
+      const { sp } = client({
+        "GET /v1/agents/load": { json: { agents: [agent, bad] } },
+      });
+      const error = await refusal(sp.agentLoad());
+      expect([error.code, error.at]).toEqual(["contract_refused", where]);
     }
+  });
+
+  test("a SuperPipeline without the read throws its 404", async () => {
+    const { sp } = client({ "GET /v1/agents/load": { status: 404 } });
+    expect((await refusal(sp.agentLoad())).status).toBe(404);
   });
 });
