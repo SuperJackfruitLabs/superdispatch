@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.0.4 — 2026-11-24
+
 ### Fixed
 
 - A SuperPipeline board whose stages have no `order` is read again. SuperPipeline has never
