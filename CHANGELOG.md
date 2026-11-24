@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.0.4 — 2026-11-24
+
+### Fixed
+
+- A SuperPipeline board whose stages have no `order` is read again. SuperPipeline has never
+  required a stage's `order`, but treaty's `board-read.v1` did until 0.0.21, so every pass
+  refused such a board (`contract_refused at #/stages/0`) and placed nothing on it. Every treaty
+  package and `treaty.json` are pinned to 0.0.21, whose contract makes `order` optional; stages
+  are read in the order SuperPipeline sends them, and SuperDispatch never read `order`.
+
 ## v0.0.3 — 2026-11-24
 
 - `treaty.json`: SuperDispatch declares the crossings it consumes (SuperPipeline's board read,
