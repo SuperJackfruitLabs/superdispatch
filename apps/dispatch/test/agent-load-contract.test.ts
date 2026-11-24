@@ -246,6 +246,15 @@ describe("agents/load, end to end", () => {
     }
   });
 
+  test("a read is logged once a pass, with how many agents and nothing from the body", async () => {
+    const w = world({ agents: [row("agt_d"), row("agt_e")] }, true);
+    await w.loop.passBoard(BOARD);
+    expect(w.log.filter((l) => l.includes("agents/load"))).toEqual([
+      "loop: agents/load: 2 agents read",
+    ]);
+    expect(w.log.join("\n")).not.toContain("prn_agt_d");
+  });
+
   test("a body the contract refuses is logged without its values, and only the roster is placed that pass", async () => {
     const leaked = "not-a-count-but-text";
     const w = world(

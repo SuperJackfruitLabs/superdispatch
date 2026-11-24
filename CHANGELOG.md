@@ -22,6 +22,8 @@
   (capability or grant), one unhealthy with room to spare, and one with a capacity of 0 count for
   nothing, on the roster or off it. One turned away only for now (busy, holding another card, a
   recent no-show, passed over, or by a station need or the dispatch policy) still counts.
+- With `SUPERDISPATCH_CANDIDATES=all`, a pass that reads `agents/load` logs it
+  (`agents/load: N agents read`), with nothing else from the answer.
 
 ## v0.0.2 — 2026-11-23
 
