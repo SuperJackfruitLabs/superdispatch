@@ -15,9 +15,9 @@
       "name": "@superjackfruitlabs/superdispatch",
       "version": "0.0.0",
       "dependencies": {
-        "@superjackfruitlabs/treaty-cloudevents": "0.0.19",
-        "@superjackfruitlabs/treaty-contracts": "0.0.19",
-        "@superjackfruitlabs/treaty-event-schemas": "0.0.19",
+        "@superjackfruitlabs/treaty-cloudevents": "0.0.21",
+        "@superjackfruitlabs/treaty-contracts": "0.0.21",
+        "@superjackfruitlabs/treaty-event-schemas": "0.0.21",
       },
     },
   },
@@ -76,11 +76,11 @@
 
     "@superjackfruitlabs/superdispatch": ["@superjackfruitlabs/superdispatch@workspace:apps/dispatch"],
 
-    "@superjackfruitlabs/treaty-cloudevents": ["@superjackfruitlabs/treaty-cloudevents@0.0.19", "", {}, "sha512-F/ovsuMPqo5lbqkQsDDSJZxcwhFRS8JvT+3K3yU1jrzacVoUCRRnQKnLbheGDrGk1lRI30yJ52+N25FznojrcQ=="],
+    "@superjackfruitlabs/treaty-cloudevents": ["@superjackfruitlabs/treaty-cloudevents@0.0.21", "", {}, "sha512-TUd8O5/a+Fpq6xXJg0SHa4/fQ1z+zS/x21Reue2wv3ZCJL5fcoKnUThYHWuCOkpDQISY70APvHffzCGHt2T4iQ=="],
 
-    "@superjackfruitlabs/treaty-contracts": ["@superjackfruitlabs/treaty-contracts@0.0.19", "", { "dependencies": { "@cfworker/json-schema": "4.1.1" }, "bin": { "treaty": "dist/cli.js" } }, "sha512-05trkBfP2PgXOCeiJZ+l9mvDVdfLF9H8W0JWm+ZfObIWm5lsCTnh6RpS3/4tkDrmm46LpRxQrlhcakvHgu/qIQ=="],
+    "@superjackfruitlabs/treaty-contracts": ["@superjackfruitlabs/treaty-contracts@0.0.21", "", { "dependencies": { "@cfworker/json-schema": "4.1.1" }, "bin": { "treaty": "dist/cli.js" } }, "sha512-cNgMVjy4AYqIA5YrMlh2LEKBWC9ja1OS/n5LS/Tj2Ti/AjR4e3QTSTeOkNyziOT/pkH9cvaPGYgdhKeQpRotEw=="],
 
-    "@superjackfruitlabs/treaty-event-schemas": ["@superjackfruitlabs/treaty-event-schemas@0.0.19", "", {}, "sha512-mbQ/YORDx/buKAZZvjbiEEx96yuj/wjfWxql15vxDT6PNtR6YjdWvA7PdZNmon2sXDNPF55lduccU9q/3ZlgdA=="],
+    "@superjackfruitlabs/treaty-event-schemas": ["@superjackfruitlabs/treaty-event-schemas@0.0.21", "", {}, "sha512-d9uwNm9+iDP8PoM+h5y1HDBWb9UfT3gLfAlNlkiwxO6Kaag9FWEBEWufuVwjbpCaOEcyeree8vi/Lni6wv3yBQ=="],
 
     "@types/bun": ["@types/bun@1.2.8", "", { "dependencies": { "bun-types": "1.2.7" } }, "sha512-t8L1RvJVUghW5V+M/fL3Thbxcs0HwNsXsnTEBEfEVqGteiJToOlZ/fyOEaR1kZsNqnu+3XA4RI/qmnX4w6+S+w=="],
 

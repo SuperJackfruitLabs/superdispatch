@@ -409,10 +409,49 @@ describe("superpipeline", () => {
     expect(e.message).not.toContain(secretish);
   });
 
+  test("a board whose stages have no order is read, in the order SuperPipeline sends them", async () => {
+    // SuperPipeline has never required a stage's `order`: a board whose stages were sent
+    // without it answers them without it, as `{key, name, ownerKind, instructions}`. Treaty
+    // 0.0.20's contract required it, and every pass refused such a board at #/stages/0.
+    const board = {
+      ...contractBoard(
+        BOARD,
+        [],
+        [{ id: CARD, currentStageKey: "draft", state: "submitted" }],
+      ),
+      stages: [
+        {
+          key: "intake",
+          name: "Intake",
+          ownerKind: "human",
+          instructions: "Say what the change is for.",
+        },
+        {
+          key: "draft",
+          name: "Draft",
+          ownerKind: "capability",
+          owner: "writing",
+          instructions: "Draft from the merged pull requests.",
+        },
+        { key: "done", name: "Done", ownerKind: "human" },
+      ],
+    };
+    const { client } = sp({ [`GET /v1/boards/${BOARD}`]: { json: board } });
+    const read = await client.board(BOARD);
+    expect(read.stages.map((s) => [s.key, s.ownerKind])).toEqual([
+      ["intake", "human"],
+      ["draft", "capability"],
+      ["done", "human"],
+    ]);
+    expect(read.stages[1]?.requires).toEqual({ all: ["writing"], any: [] });
+    expect(read.cards.map((c) => c.stageKey)).toEqual(["draft"]);
+  });
+
   test("treaty's own board cases are read", async () => {
     for (const name of [
       "a board with a held card, a card in review and an archived card",
       "an empty board with an intro and a decision timeout",
+      "a board whose stages were sent without an order, in board order",
     ]) {
       const json = treatyCase(CASES.boardRead, "readBoard", "200", name);
       const { client } = sp({ [`GET /v1/boards/${BOARD}`]: { json } });
