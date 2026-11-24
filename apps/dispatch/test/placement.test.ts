@@ -237,7 +237,7 @@ describe("a decision's invariants", () => {
         reason: "one-candidate",
         candidates: [eligible("agt_a"), eligible("agt_b")],
       }),
-    ).toEqual(["one-candidate, with 2 on the roster"]);
+    ).toEqual(["one-candidate, with 2 in the set and 2 eligible"]);
     expect(
       decisionProblems({
         kind: "none",

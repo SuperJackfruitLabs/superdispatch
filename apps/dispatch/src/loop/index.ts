@@ -392,14 +392,17 @@ export function createLoop(deps: LoopDeps): Loop {
   /**
    * Every agent's load from SuperPipeline, by agent, when the candidate set is `all`; empty
    * otherwise, or when it cannot be read: then no agent off the roster is a candidate this pass,
-   * and each keeps working by pull.
+   * and each keeps working by pull. A read is logged, with how many agents and nothing else from
+   * the body, so a placement on the wider set shows in the log; it is read once a pass.
    */
   async function directLoads(): Promise<Map<string, DirectLoadEntry>> {
     if (candidateSet !== "all") return new Map();
     try {
-      return new Map(
-        (await superpipeline.agentLoad()).map((e) => [e.agentId, e]),
+      const entries = await superpipeline.agentLoad();
+      log(
+        `loop: agents/load: ${entries.length} agent${entries.length === 1 ? "" : "s"} read`,
       );
+      return new Map(entries.map((e) => [e.agentId, e]));
     } catch (error) {
       log(
         `loop: agent load unread (${describe(error)}); only the roster is placed`,

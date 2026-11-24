@@ -48,8 +48,12 @@
  *   are the **runner-up** tier, each held for the best candidate not yet passed over, for
  *   `runnerUpSeconds`; after that the card is open to **any match**: nothing is held and pull
  *   decides. A runner-up step with nobody left to hold for opens the card at once. See `tierFor`.
- * - **Decide.** A card with fewer than `MIN_CANDIDATES` rostered candidates is not placed: with
- *   one agent there is no choice to make, and pull already gives it the card. Otherwise the best
+ * - **Decide.** A card with fewer than `MIN_CANDIDATES` candidates in the set, or with an eligible
+ *   candidate and fewer than `MIN_CANDIDATES` that could take it, is not placed: with one agent
+ *   able to take it there is no choice to make, and pull already gives it the card. An agent that
+ *   never could (SuperPipeline would refuse its claim, it is unhealthy with room, its capacity is
+ *   0) counts for nothing, whether its load came from the roster or from SuperPipeline (`direct`);
+ *   see `choice.ts`. Otherwise the best
  *   eligible candidate is chosen. When none is eligible only because the free ones are holding
  *   other cards, the card waits for a later pass (`waiting-on-holds`) rather than give up its
  *   tier, and likewise when a candidate fails only for its load: work in hand, its concurrency,
@@ -73,14 +77,14 @@ import {
 } from "../sources/index.ts";
 import { DEFAULT_MIN_PROOF, type Proof } from "../config.ts";
 import { checkNeeds, type NeedName } from "./requirements.ts";
+import { MIN_CANDIDATES, inTheSet, noChoice } from "./choice.ts";
 
 export { CANDIDATE_SETS, DEFAULT_CANDIDATE_SET, type CandidateSet };
 
 /** The name of the fixed policy below, recorded with every decision. */
 export const POLICY = "idle-stage-success-lru@3";
 
-/** The fewest candidates in the set a card needs before it is placed. */
-export const MIN_CANDIDATES = 2;
+export { MIN_CANDIDATES };
 
 /** How many lapsed reservations within the window shut an agent out. */
 export const NO_SHOW_LIMIT = 2;
@@ -329,7 +333,10 @@ export type NoDecisionReason =
   | "no-candidates"
   /** Every candidate failed a filter. */
   | "none-eligible"
-  /** Fewer than `MIN_CANDIDATES` candidates are on the roster: there is no choice to make. */
+  /**
+   * Fewer than `MIN_CANDIDATES` candidates are in the set, or one is eligible and fewer than
+   * `MIN_CANDIDATES` could take the card: there is no choice to make, and pull decides.
+   */
   | "one-candidate"
   /**
    * Nobody is eligible, but an agent not yet passed over fails only because it holds another
@@ -718,11 +725,7 @@ export function place(input: PlacementInput): Decision {
     ...(facts.policy !== undefined ? { policy: facts.policy } : {}),
   }));
 
-  const rostered = filtered.filter(({ filters }) =>
-    filters.some((r) => r.filter === "roster" && r.passed),
-  ).length;
-  if (rostered > 0 && rostered < MIN_CANDIDATES)
-    return none("one-candidate", records);
+  if (noChoice(filtered)) return none("one-candidate", records);
   if (tier.name === "any-match") return none("any-match", records);
   const best = eligible[0];
   if (best === undefined) {
@@ -849,7 +852,8 @@ export function isEligible(record: CandidateRecord): boolean {
  * - a candidate is scored when, and only when, it passed every filter, and a score is finite;
  * - a chosen agent is one of the candidates, and an eligible one;
  * - "none-eligible" has candidates and none of them eligible, "no-candidates" has none;
- * - "one-candidate" has candidates, and fewer than `MIN_CANDIDATES` of them on the roster.
+ * - "one-candidate" has candidates in the set, and fewer than `MIN_CANDIDATES` of them or fewer
+ *   than `MIN_CANDIDATES` eligible.
  */
 export function decisionProblems(decision: Decision): string[] {
   const problems: string[] = [];
@@ -903,11 +907,16 @@ export function decisionProblems(decision: Decision): string[] {
     if (decision.candidates.length > 0)
       problems.push("no-candidates, with candidates");
   } else if (decision.reason === "one-candidate") {
-    const rostered = decision.candidates.filter((record) =>
-      record.filters.some((r) => r.filter === "roster" && r.passed),
+    // The record keeps no load, so this checks what it can: some candidate in the set, and fewer
+    // than `MIN_CANDIDATES` of them, or fewer than `MIN_CANDIDATES` eligible.
+    const inSet = decision.candidates.filter((record) =>
+      inTheSet(record.filters),
     ).length;
-    if (rostered === 0 || rostered >= MIN_CANDIDATES)
-      problems.push(`one-candidate, with ${rostered} on the roster`);
+    const eligible = decision.candidates.filter(isEligible).length;
+    if (inSet === 0 || (inSet >= MIN_CANDIDATES && eligible >= MIN_CANDIDATES))
+      problems.push(
+        `one-candidate, with ${inSet} in the set and ${eligible} eligible`,
+      );
   } else if (decision.reason === "none-eligible") {
     if (decision.candidates.length === 0)
       problems.push("none-eligible, with no candidates");
