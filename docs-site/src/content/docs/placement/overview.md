@@ -34,9 +34,17 @@ see where every fact enters, where the choice happens and where the receipt is w
    card's eligibility from SuperPipeline (which judges every agent of the workspace), then:
    - [filters](/placement/filters/) every agent, each rejection with a reason code;
    - [scores](/placement/scoring/) the ones that passed every filter;
-   - with two or more rostered candidates, chooses the best and asks SuperPipeline to
-     [hold the card](/placement/holds-and-tiers/) for it for the tier's window. With one, there is
-     no choice to make and pull already gives it the card (`one-candidate`).
+   - with two or more candidates that could take the card, chooses the best and asks SuperPipeline
+     to [hold the card](/placement/holds-and-tiers/) for it for the tier's window. With one, there
+     is no choice to make and pull already gives it the card (`one-candidate`).
+
+   Only a candidate that could take the card counts toward the two, whether it is on the roster or
+   read from SuperPipeline's `agents/load` (`SUPERDISPATCH_CANDIDATES=all`). One SuperPipeline
+   would refuse (`capability-missing`, `grant-denied`), one that is `unhealthy` with room to spare
+   (no heartbeat, a stale one) and one with a capacity of 0 count for nothing. One turned away only
+   for now still counts: busy, holding another card, a recent no-show, passed over on this card's
+   ladder, or turned away by a station need or the dispatch policy, which only a hold for another
+   agent enforces.
 
 4. **Record the decision**: the card, the policy, the tier and step, every candidate with each
    filter's result and the score that ranked it, the hold and, on a later pass, the outcome. See
@@ -54,7 +62,7 @@ A decision that chooses nobody says why:
 | Reason             | When                                                                                   | Recorded |
 | ------------------ | -------------------------------------------------------------------------------------- | -------- |
 | `no-candidates`    | nobody was considered                                                                  | yes      |
-| `one-candidate`    | fewer than two candidates are on the roster: no choice to make, pull decides           | yes      |
+| `one-candidate`    | fewer than two candidates could take the card: no choice to make, pull decides         | yes      |
 | `none-eligible`    | at the winner step, every candidate failed a filter                                    | yes      |
 | `any-match`        | the tiers are spent, or a runner-up step has nobody left: nothing is held, pull decides | yes      |
 | `waiting-on-holds` | nobody is eligible, but a free agent fails only because it holds another card          | no       |

@@ -157,6 +157,76 @@ describe("the candidate set", () => {
     );
   });
 
+  test("all: a direct agent that could never take the card leaves no choice (the staging case)", () => {
+    // Staging, 2026-11-24: one eligible rostered agent beside the canary agent, read from
+    // agents/load with no capability and a stale heartbeat. The card had one agent able to take
+    // it, so pull decides: one-candidate, no hold.
+    const d = decide(
+      "all",
+      rostered("agt_a"),
+      direct("agt_canary", {
+        reasons: ["capability_mismatch"],
+        lastHeartbeatAt: iso(NOW - 3 * 60 * MIN),
+      }),
+    );
+    expect(verdicts(d)).toEqual({
+      agt_a: "ok",
+      agt_canary: "capability-missing,unhealthy",
+    });
+    expect(chosen(d)).toBe("one-candidate");
+  });
+
+  test("all: a direct agent filtered out for any one reason does not count toward the minimum", () => {
+    for (const [name, other] of [
+      [
+        "unhealthy",
+        direct("agt_d", { lastHeartbeatAt: iso(NOW - 2 * 60 * MIN) }),
+      ],
+      [
+        "capability-missing",
+        direct("agt_d", { reasons: ["capability_mismatch"] }),
+      ],
+      ["no heartbeat", direct("agt_d", { lastHeartbeatAt: null })],
+      ["a capacity of zero", direct("agt_d", { capacity: 0 })],
+    ] as const) {
+      const d = decide("all", rostered("agt_a"), other);
+      expect(verdicts(d).agt_d, name).not.toBe("ok");
+      expect(chosen(d), name).toBe("one-candidate");
+    }
+  });
+
+  test("all: a direct agent busy only for now still counts: it frees up, so holding for the idle one is a choice", () => {
+    const d = decide(
+      "all",
+      rostered("agt_a"),
+      direct("agt_d", { inFlight: 1 }),
+    );
+    expect(verdicts(d).agt_d).toBe("not-idle");
+    expect(chosen(d)).toBe("agt_a");
+  });
+
+  test("all: two able agents, whatever their source, still make a choice beside one that cannot", () => {
+    const d = decide(
+      "all",
+      rostered("agt_a", { lastAt: NOW - 5 * MIN }),
+      direct("agt_d", { lastHeartbeatAt: iso(NOW - 30 * MIN) }),
+      direct("agt_off", { capacity: 0 }),
+    );
+    expect(chosen(d)).toBe("agt_d");
+  });
+
+  test("roster: a rostered agent that cannot take the card does not count toward the minimum either", () => {
+    expect(
+      chosen(
+        decide(
+          "roster",
+          rostered("agt_a"),
+          rostered("agt_b", { ready: false }),
+        ),
+      ),
+    ).toBe("one-candidate");
+  });
+
   test("all: health and idle come from the shape, for direct agents too", () => {
     const d = decide(
       "all",

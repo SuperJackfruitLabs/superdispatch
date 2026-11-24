@@ -15,6 +15,13 @@
   numbers, never null, and a capacity of 0 takes nothing (it was read as 1). The route needs
   SuperPipeline v0.0.38 or later; before then it answers 404 and `SUPERDISPATCH_CANDIDATES=all`
   places the roster agents only, as `roster` does.
+- A candidate that could never take the card no longer counts toward the two a choice needs.
+  With `SUPERDISPATCH_CANDIDATES=all`, an agent read from `agents/load` that was
+  `capability-missing` or `unhealthy` turned a card with one eligible agent into a 60 s hold for
+  it, where `one-candidate` (pull decides) was right. Now an agent SuperPipeline would refuse
+  (capability or grant), one unhealthy with room to spare, and one with a capacity of 0 count for
+  nothing, on the roster or off it. One turned away only for now (busy, holding another card, a
+  recent no-show, passed over, or by a station need or the dispatch policy) still counts.
 
 ## v0.0.2 — 2026-11-23
 

@@ -57,11 +57,13 @@ interface LoadRow {
 
 /**
  * One board with one ready card, a roster with one rostered agent (busy unless `rosterIdle`),
- * every agent eligible, and `load` as SuperPipeline's `agents/load` answer (or a status for it).
+ * every agent eligible but for SuperPipeline's `reasons` against it, and `load` as SuperPipeline's
+ * `agents/load` answer (or a status for it).
  */
 function world(
   load: { agents: LoadRow[] } | { status: number; json?: unknown },
   rosterIdle = false,
+  reasons: Readonly<Record<string, string[]>> = {},
 ) {
   const t = tempStore();
   cleanups.push(t.cleanup);
@@ -100,8 +102,8 @@ function world(
           agentId,
           name: agentId,
           principalId: `prn_${agentId}`,
-          eligible: true,
-          reasons: [],
+          eligible: (reasons[agentId] ?? []).length === 0,
+          reasons: reasons[agentId] ?? [],
         })),
       },
     ),
@@ -165,7 +167,9 @@ function world(
       .map((s) => at(s.body, "agentId"));
   const verdicts = () =>
     candidateVerdicts(t.store.listDecisions({ limit: 10 })[0]?.candidates);
-  return { loop, log, held, verdicts, pipeline };
+  const reason = () =>
+    t.store.listDecisions({ limit: 10 })[0]?.noDecisionReason ?? null;
+  return { loop, log, held, verdicts, reason, pipeline };
 }
 
 const row = (agentId: string, over: Partial<LoadRow> = {}): LoadRow => ({
@@ -207,6 +211,39 @@ describe("agents/load, end to end", () => {
       agt_full: "not-idle",
       agt_d: "ok",
     });
+  });
+
+  test("the staging case: one eligible rostered agent and a direct one without the capability or a heartbeat is one-candidate, nothing held", async () => {
+    // Staging, 2026-11-24 (decision pld_b874225d16a5552fb0acdb14): the canary agent, read from
+    // agents/load, counted toward the minimum and the card got a 60 s hold it did not need.
+    const w = world(
+      {
+        agents: [
+          row("agt_canary", { lastHeartbeatAt: iso(T0 - 3 * 60 * MIN) }),
+        ],
+      },
+      true,
+      { agt_canary: ["capability_mismatch"] },
+    );
+    await w.loop.passBoard(BOARD);
+    expect(w.verdicts()).toEqual({
+      agt_a: "ok",
+      agt_canary: "capability-missing,unhealthy",
+    });
+    expect(w.reason()).toBe("one-candidate");
+    expect(w.held()).toEqual([]);
+  });
+
+  test("beside one eligible rostered agent, a direct agent with a capacity of 0 or no heartbeat gives no choice", async () => {
+    for (const other of [
+      row("agt_zero", { capacity: 0 }),
+      row("agt_never", { lastHeartbeatAt: null }),
+    ]) {
+      const w = world({ agents: [other] }, true);
+      await w.loop.passBoard(BOARD);
+      expect(w.reason(), other.agentId).toBe("one-candidate");
+      expect(w.held(), other.agentId).toEqual([]);
+    }
   });
 
   test("a body the contract refuses is logged without its values, and only the roster is placed that pass", async () => {

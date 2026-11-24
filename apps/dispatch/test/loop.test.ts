@@ -655,12 +655,21 @@ describe("the next pass: what became of the card", () => {
   });
 
   test("an agent whose holds lapse twice, on any cards, is shut out as a no-show, and comes back once they age out", async () => {
-    const w = world();
+    // agt_b is one the policy forbids: it still counts toward the minimum (only a hold keeps a pull
+    // from it), so there is a choice, and agt_a is the only eligible agent.
+    const w = world({
+      decide: (r) => ({
+        allow: r.subject !== "prn_agt_b",
+        reasons: [r.subject === "prn_agt_b" ? "reviewers-only" : "allowed"],
+        policyVersion: 1,
+        limits: [],
+      }),
+    });
     w.addCard(CARD);
     w.addAgent("agt_a");
-    w.addAgent("agt_b", { roster: { ready: false } });
-    // agt_a is the only healthy agent: held for it as the winner, lapsed. With nobody else free, the
-    // runner-up step opens the card to any match.
+    w.addAgent("agt_b");
+    // agt_a is held for as the winner, lapsed. With nobody else free, the runner-up step opens the
+    // card to any match.
     await w.loop.passBoard(BOARD);
     w.advance(61 * S);
     await w.loop.passBoard(BOARD);
@@ -686,7 +695,7 @@ describe("the next pass: what became of the card", () => {
     expect(all[4]?.noDecisionReason).toBe("none-eligible");
     expect(verdicts(all[4]?.candidates)).toEqual({
       agt_a: "recently-no-show",
-      agt_b: "unhealthy",
+      agt_b: "policy-denied",
     });
     // On the open cards it is passed over and a no-show, but pull still lets it claim them.
     expect(verdicts(all[3]?.candidates).agt_a).toBe(
