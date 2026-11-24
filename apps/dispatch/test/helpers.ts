@@ -76,3 +76,24 @@ export function fakeFetch(
   };
   return { fetch: impl as unknown as typeof fetch, seen };
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** A JSON value's field at a path of keys, or undefined. */
+export function at(value: unknown, ...keys: string[]): unknown {
+  let v = value;
+  for (const key of keys) v = isRecord(v) ? v[key] : undefined;
+  return v;
+}
+
+/** The objects of a JSON array; none when it is not one. */
+export function rows(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+/** A JSON object, or a thrown test failure. */
+export function record(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error("not an object");
+  return value;
+}

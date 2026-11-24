@@ -84,6 +84,11 @@ jobs:
           bun-version-file: .bun-version
       - if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
         run: bun install --frozen-lockfile
+      - name: Treaty
+        # treaty.json against the installed treaty release: the crossings this service consumes,
+        # and the release it pins.
+        if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
+        run: node_modules/.bin/treaty verify
       - name: Format
         if: needs.changes.result == 'success' && needs.changes.outputs.docs_only == 'false'
         run: bun run fmt:check

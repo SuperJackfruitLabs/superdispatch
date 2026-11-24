@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `treaty.json`: SuperDispatch declares the crossings it consumes (SuperPipeline's board read,
+  placement and events, AgentPod's capability catalog, Accounts' plane, SuperWitness's runs and
+  the relay), and CI runs `treaty verify` against it. Every treaty package is pinned to 0.0.19.
+
 ## v0.0.2 — 2026-11-23
 
 - A relayed `card.ready` is read through treaty's `card.ready.v1` schema. One that does not

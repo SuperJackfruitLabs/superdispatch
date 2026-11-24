@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun scripts/lint.mjs",
     "test": "bun test",
-    "check": "bun run fmt:check && bun run typecheck && bun run lint && bun run test"
+    "treaty": "treaty verify",
+    "check": "bun run treaty && bun run fmt:check && bun run typecheck && bun run lint && bun run test"
   },
   "devDependencies": {
     "@types/bun": "1.2.8",
