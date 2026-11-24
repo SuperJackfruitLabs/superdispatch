@@ -62,7 +62,7 @@ function direct(
         agentId,
         principalId: `prn_${agentId}`,
         inFlight: 0,
-        capacity: null,
+        capacity: 1,
         lastHeartbeatAt: iso(NOW - 2 * MIN),
         ...entry,
       },

@@ -20,12 +20,15 @@
  * - `GET /v1/agents/load` (scope `dispatch:read`): every agent of the workspace with the cards it
  *   holds over every board (`inFlight`), its `capacity` and its latest run heartbeat
  *   (`lastHeartbeatAt`): the load and health of an agent that claims with its own token, read
- *   once a pass when the candidate set is `all`. A SuperPipeline without it answers 404, and no
- *   agent off the roster becomes a candidate.
+ *   once a pass when the candidate set is `all`. SuperPipeline serves it from v0.0.38; one without
+ *   it answers 404, and no agent off the roster becomes a candidate.
  *
  * The reservation verb is SuperPipeline's step 1 of the scheduler plan. Until a SuperPipeline
  * deployment has it, `PUT` answers 404 or 405, the loop records the decision as `not-reserved`,
  * and cards are claimed by pull exactly as before.
+ *
+ * Every 2xx body is held to treaty's contract first (`board-read.v1`, `placement.v1`;
+ * `./contracts.ts`): a body it refuses is `contract_refused`, never read in part.
  *
  * A refusal throws `SourceError`, because "no cards" and "this token is refused" must never read
  * alike; a 401 also drops the held token, so the next call asks the plane for a new one. The
@@ -34,13 +37,17 @@
 import type { ServiceTokens } from "./accounts.ts";
 import { ISOLATION_ORDER, type StageNeeds } from "./capabilities.ts";
 import {
-  SourceError,
+  contractBody,
+  contractBreak,
+  type WireCard,
+  type WireStage,
+} from "./contracts.ts";
+import {
   call,
   enc,
   errorCode,
   field,
   isoTime,
-  okBody,
   type Answer,
   type CallDeps,
 } from "./http.ts";
@@ -100,14 +107,17 @@ export interface EligibilityView {
   }>;
 }
 
-/** One agent's load as SuperPipeline reports it; `directLoad` turns it into the shared shape. */
+/**
+ * One agent's load as SuperPipeline reports it (treaty `placement.v1`, `AgentLoad`); `directLoad`
+ * turns it into the shared shape.
+ */
 export interface DirectLoadEntry {
   agentId: string;
   principalId: string | null;
-  /** Cards it holds over every board; null when the answer had no whole number for it. */
-  inFlight: number | null;
-  /** The most cards it may hold at once; null when not reported. */
-  capacity: number | null;
+  /** Cards it holds over every board: a whole number, 0 or more. */
+  inFlight: number;
+  /** The most cards it may hold at once: a whole number; 0 takes nothing. */
+  capacity: number;
   /** Its latest run heartbeat on any board, ISO; null when it never ran. */
   lastHeartbeatAt: string | null;
 }
@@ -137,23 +147,18 @@ const strings = (value: unknown): string[] =>
     : [];
 const str = (value: unknown): string | null =>
   typeof value === "string" && value !== "" ? value : null;
-const num = (value: unknown, fallback = 0): number =>
-  typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
-function stageOf(raw: unknown): StageView | null {
-  const key = str(field(raw, "key"));
-  if (key === null) return null;
-  const requires = field(raw, "requires");
-  const all = strings(field(requires, "all"));
-  const any = strings(field(requires, "any"));
-  const ownerKind = str(field(raw, "ownerKind"));
+function stageOf(raw: WireStage): StageView {
+  const all = raw.requires?.all ?? [];
+  const any = raw.requires?.any ?? [];
+  const ownerKind = raw.ownerKind ?? null;
   const hasRequires = all.length > 0 || any.length > 0;
-  const owner = str(field(raw, "owner"));
+  const owner = str(raw.owner);
   return {
-    key,
+    key: raw.key,
     ownerKind,
     hasRequires,
-    placement: placementOf(field(raw, "placement")),
+    placement: placementOf(raw.placement),
     requires:
       !hasRequires && ownerKind === "capability" && owner !== null
         ? { all: [owner], any: [] }
@@ -184,27 +189,22 @@ export function placementOf(raw: unknown): StageNeeds | null {
   return Object.keys(needs).length > 0 ? needs : null;
 }
 
-function cardOf(raw: unknown): CardView | null {
-  const id = str(field(raw, "id"));
-  const stageKey = str(field(raw, "currentStageKey"));
-  const state = str(field(raw, "state"));
-  if (id === null || stageKey === null || state === null) return null;
-  const hold = field(raw, "reservation");
-  const holdAgent = str(field(hold, "agentId"));
-  const holdUntil = isoTime(field(hold, "reservedUntil"));
+function cardOf(raw: WireCard): CardView {
+  const hold = raw.reservation;
+  const holdUntil = hold === undefined ? null : isoTime(hold.reservedUntil);
   return {
-    id,
-    stageKey,
-    state,
-    currentRunId: str(field(raw, "currentRunId")),
-    lastAgentId: str(field(raw, "lastAgentId")),
-    attemptCount: num(field(raw, "attemptCount")),
-    priority: num(field(raw, "priority")),
-    createdAt: isoTime(field(raw, "createdAt")) ?? "",
-    archived: str(field(raw, "archivedAt")) !== null,
+    id: raw.id,
+    stageKey: raw.currentStageKey,
+    state: raw.state,
+    currentRunId: str(raw.currentRunId),
+    lastAgentId: str(raw.lastAgentId),
+    attemptCount: raw.attemptCount,
+    priority: raw.priority,
+    createdAt: isoTime(raw.createdAt) ?? "",
+    archived: raw.archivedAt !== null,
     reservation:
-      holdAgent !== null && holdUntil !== null
-        ? { agentId: holdAgent, reservedUntil: holdUntil }
+      hold !== undefined && holdUntil !== null
+        ? { agentId: hold.agentId, reservedUntil: holdUntil }
         : null,
   };
 }
@@ -232,50 +232,38 @@ export function createSuperpipeline(
 
   return {
     async board(boardId) {
-      const json = okBody(
+      const json = contractBody(
         "superpipeline",
+        "superpipeline.board-read",
+        "readBoard",
         await authed("GET", `/v1/boards/${enc(boardId)}`),
       );
-      const stages = field(json, "stages");
-      const cards = field(json, "cards");
-      if (!Array.isArray(stages) || !Array.isArray(cards)) {
-        throw new SourceError("superpipeline", 200, "malformed_response");
-      }
       return {
         boardId,
-        stages: stages.map(stageOf).filter((s) => s !== null),
-        cards: cards.map(cardOf).filter((c) => c !== null),
+        stages: json.stages.map(stageOf),
+        cards: json.cards.map(cardOf),
       };
     },
 
     async eligibility(boardId, cardId) {
-      const json = okBody(
+      const json = contractBody(
         "superpipeline",
+        "superpipeline.placement",
+        "readCardEligibility",
         await authed(
           "GET",
           `/v1/boards/${enc(boardId)}/cards/${enc(cardId)}/eligibility`,
         ),
       );
-      const agents = field(json, "agents");
-      const stageKey = str(field(json, "stageKey"));
-      if (!Array.isArray(agents) || stageKey === null) {
-        throw new SourceError("superpipeline", 200, "malformed_response");
-      }
       return {
-        stageKey,
-        reasons: strings(field(json, "reasons")),
-        agents: agents.flatMap((a) => {
-          const agentId = str(field(a, "agentId"));
-          if (agentId === null) return [];
-          return [
-            {
-              agentId,
-              principalId: str(field(a, "principalId")),
-              eligible: field(a, "eligible") === true,
-              reasons: strings(field(a, "reasons")),
-            },
-          ];
-        }),
+        stageKey: json.stageKey,
+        reasons: json.reasons,
+        agents: json.agents.map((a) => ({
+          agentId: a.agentId,
+          principalId: str(a.principalId),
+          eligible: a.eligible,
+          reasons: a.reasons,
+        })),
       };
     },
 
@@ -286,14 +274,21 @@ export function createSuperpipeline(
         hold,
       );
       if (answer.status >= 200 && answer.status < 300) {
-        const until = isoTime(
-          field(field(answer.json, "reservation"), "reservedUntil"),
+        const broke = contractBreak(
+          "superpipeline.placement",
+          "reserveCard",
+          answer.status,
+          answer.json,
         );
+        const until =
+          broke === null
+            ? isoTime(field(field(answer.json, "reservation"), "reservedUntil"))
+            : null;
         if (until === null)
           return {
             ok: false,
             status: answer.status,
-            code: "malformed_response",
+            code: "contract_refused",
           };
         return { ok: true, reservedUntil: until };
       }
@@ -305,35 +300,28 @@ export function createSuperpipeline(
     },
 
     async agentLoad() {
-      const agents = field(
-        okBody("superpipeline", await authed("GET", "/v1/agents/load")),
-        "agents",
+      const json = contractBody(
+        "superpipeline",
+        "superpipeline.placement",
+        "readAgentLoad",
+        await authed("GET", "/v1/agents/load"),
       );
-      if (!Array.isArray(agents)) {
-        throw new SourceError("superpipeline", 200, "malformed_response");
-      }
-      const whole = (value: unknown): number | null =>
-        typeof value === "number" && Number.isInteger(value) && value >= 0
-          ? value
-          : null;
-      return agents.flatMap((a): DirectLoadEntry[] => {
-        const agentId = str(field(a, "agentId"));
-        if (agentId === null) return [];
-        return [
-          {
-            agentId,
-            principalId: str(field(a, "principalId")),
-            inFlight: whole(field(a, "inFlight")),
-            capacity: whole(field(a, "capacity")),
-            lastHeartbeatAt: isoTime(field(a, "lastHeartbeatAt")),
-          },
-        ];
-      });
+      return json.agents.map(
+        (a): DirectLoadEntry => ({
+          agentId: a.agentId,
+          principalId: str(a.principalId),
+          inFlight: a.inFlight,
+          capacity: a.capacity,
+          lastHeartbeatAt: isoTime(a.lastHeartbeatAt),
+        }),
+      );
     },
 
     async setPlacementWindow(boardId, seconds) {
-      okBody(
+      contractBody(
         "superpipeline",
+        "superpipeline.placement",
+        "setScheduling",
         await authed("PUT", `/v1/boards/${enc(boardId)}/scheduling`, {
           placementWindowSeconds: seconds,
         }),
@@ -346,7 +334,12 @@ export function createSuperpipeline(
         `/v1/boards/${enc(boardId)}/cards/${enc(cardId)}/reservation`,
       );
       if (answer.status !== 204 && answer.status !== 404) {
-        okBody("superpipeline", answer);
+        contractBody(
+          "superpipeline",
+          "superpipeline.placement",
+          "clearCardReservation",
+          answer,
+        );
       }
     },
   };

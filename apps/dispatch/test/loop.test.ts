@@ -1607,7 +1607,7 @@ describe("the wider candidate set", () => {
       agentId,
       principalId: `prn_${agentId}`,
       inFlight: 0,
-      capacity: null,
+      capacity: 1,
       lastHeartbeatAt: new Date(T0 - 120 * S).toISOString(),
       ...over,
     });

@@ -13,8 +13,15 @@ export class SourceError extends Error {
     readonly status: number,
     /** The product's error code when it gave one, else a short code of ours. */
     readonly code: string,
+    /**
+     * For `contract_refused`: where the body broke treaty's contract, a JSON pointer into the
+     * body. Never a value from it.
+     */
+    readonly at?: string,
   ) {
-    super(`${product} answered ${status === 0 ? "nothing" : status} (${code})`);
+    super(
+      `${product} answered ${status === 0 ? "nothing" : status} (${code}${at !== undefined ? ` at ${at}` : ""})`,
+    );
     this.name = "SourceError";
   }
 }

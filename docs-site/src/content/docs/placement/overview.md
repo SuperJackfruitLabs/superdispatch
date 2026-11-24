@@ -78,8 +78,10 @@ specific kind of capacity to return.
   each. An agent that claims with its own token is recorded as `not-on-roster` and keeps working
   by pull.
 - **`all`**: those, and every agent of the workspace with no bridge row on the board, once
-  SuperPipeline reports its load and health (`GET /v1/agents/load`, read once a pass). When that
-  read fails, only the roster is placed that pass.
+  SuperPipeline reports its load and health (`GET /v1/agents/load`, read once a pass). The read
+  needs SuperPipeline v0.0.38 or later. Before then the route answers 404, and the pass places the
+  roster agents only, as with `roster`; the same holds whenever the read fails, or its answer is
+  not treaty's `placement.v1`.
 
 An agent with a disabled bridge row stays out either way: a person turned it off on this board.
 
@@ -94,10 +96,11 @@ The health and idle filters read one shape, whichever source gave it:
 | Source   | `inFlight`                         | `capacity`          | `healthy`                                | `lastSeenAt`                    |
 | -------- | ---------------------------------- | ------------------- | ---------------------------------------- | ------------------------------- |
 | `roster` | 1 when the station is busy, else 0 | 1                   | the row is enabled and the bridge ready  | when the station last took work |
-| `direct` | cards held over every board        | as reported, else 1 | heard from on a run within the last hour | its latest run heartbeat        |
+| `direct` | cards held over every board        | as reported         | heard from on a run within the last hour | its latest run heartbeat        |
 
-Idle is `inFlight < capacity`. A direct agent never heard from is not healthy: nothing says it is
-there, so it keeps pulling until it has run once. Every candidate record carries its `source`.
+Idle is `inFlight < capacity`, so a direct agent with a capacity of 0 is never idle. A direct
+agent never heard from is not healthy: nothing says it is there, so it keeps pulling until it
+has run once. Every candidate record carries its `source`.
 
 ## The placement window
 

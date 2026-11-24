@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/SuperJackfruitLabs/treaty/main/schemas/treaty/product-manifest.v1.json",
+  "product": "superdispatch",
+  "treaty": "0.0.19",
+  "produces": [],
+  "consumes": [
+    "accounts.plane-api",
+    "accounts.token-claims",
+    "agentpod.capability-catalog",
+    "superpipeline.board-read",
+    "superpipeline.events",
+    "superpipeline.placement",
+    "superwitness.runs",
+    "treaty.relay"
+  ]
+}

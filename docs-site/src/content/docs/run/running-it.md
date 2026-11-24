@@ -74,8 +74,8 @@ one sprawling key around. Sprawling keys are memorable, but not in the good way.
 - `PUT /v1/boards/:id/cards/:cardId/reservation`: the hold. A SuperPipeline without it refuses each
   hold, and the decision is recorded as `not-reserved`;
 - `PUT /v1/boards/:id/scheduling`: the board's placement window, set on opt-in and opt-out;
-- with `SUPERDISPATCH_CANDIDATES=all`, `GET /v1/agents/load` (on `dispatch:read`). A SuperPipeline
-  without it places the roster alone.
+- with `SUPERDISPATCH_CANDIDATES=all`, `GET /v1/agents/load` (on `dispatch:read`), served from
+  SuperPipeline v0.0.38. A SuperPipeline without it answers 404, and the roster is placed alone.
 
 Those routes give SuperDispatch the board, the eligibility facts and the one temporary hold it is
 allowed to request. The card itself still belongs to SuperPipeline.

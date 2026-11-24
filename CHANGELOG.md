@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `treaty.json`: SuperDispatch declares the crossings it consumes (SuperPipeline's board read,
+  placement and events, AgentPod's capability catalog, Accounts' plane, SuperWitness's runs and
+  the relay), and CI runs `treaty verify` against it. Every treaty package is pinned to 0.0.19.
+- SuperPipeline's board, eligibility, reservation, placement window and agent load answers, and
+  AgentPod's roster and capability registry, are read through treaty's contracts
+  (`board-read.v1`, `placement.v1`, `capability-catalog.v1`). An answer the contract refuses is
+  logged with where it broke the contract, never its values, and the source counts as unread
+  for that pass. Before, a malformed row was left out and the rest read; now the whole answer is
+  refused.
+- `GET /v1/agents/load` follows treaty's `placement.v1`: `inFlight` and `capacity` are whole
+  numbers, never null, and a capacity of 0 takes nothing (it was read as 1). The route needs
+  SuperPipeline v0.0.38 or later; before then it answers 404 and `SUPERDISPATCH_CANDIDATES=all`
+  places the roster agents only, as `roster` does.
+
 ## v0.0.2 — 2026-11-23
 
 - A relayed `card.ready` is read through treaty's `card.ready.v1` schema. One that does not

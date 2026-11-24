@@ -12,21 +12,16 @@
  * service listed in its `CATALOG_READERS`. A hub without the read answers 404, and then the answer
  * is null: placement leaves every stated need unchecked rather than refuse every candidate.
  *
+ * Both bodies are held to treaty's `capability-catalog.v1` first (`./contracts.ts`): a body it
+ * refuses is `contract_refused`, never read in part.
+ *
  * Reads only: a roster is AgentPod's, and a change to it is a person's. A refusal throws
- * `SourceError`; a 401 drops the held token. A row the hub sends malformed is left out.
+ * `SourceError`; a 401 drops the held token.
  */
-import { PROOF_ORDER, type Proof } from "../config.ts";
 import type { StationCaps } from "./capabilities.ts";
 import type { ServiceTokens } from "./accounts.ts";
-import {
-  SourceError,
-  call,
-  enc,
-  field,
-  isoTime,
-  okBody,
-  type CallDeps,
-} from "./http.ts";
+import { contractBody, type WireStation } from "./contracts.ts";
+import { call, enc, isoTime, type CallDeps } from "./http.ts";
 
 export interface RosterEntry {
   key: string;
@@ -44,46 +39,21 @@ export interface Agentpod {
   stationCapabilities(): Promise<Map<string, StationCaps> | null>;
 }
 
-/** A proof as the hub spelled it; anything else is the weakest. */
-const proofOf = (value: unknown): Proof =>
-  PROOF_ORDER.find((p) => p === value) ?? "declared";
-const str = (value: unknown): string | null =>
-  typeof value === "string" && value !== "" ? value : null;
-
-/** One registry row, or null when it names no station. Malformed facts are left out, never guessed. */
-export function stationCapsOf(raw: unknown): StationCaps | null {
-  const stationId = str(field(raw, "stationId"));
-  if (stationId === null) return null;
-  const iso = field(raw, "isolation");
-  const level = str(field(iso, "level"));
-  const model = field(raw, "model");
-  const modelId = str(field(model, "id"));
-  const list = (value: unknown, key: string) =>
-    (Array.isArray(value) ? value : []).flatMap((e: unknown) => {
-      const id = str(field(e, key));
-      return id === null ? [] : [{ id, proof: proofOf(field(e, "proof")) }];
-    });
+/** One registry row, as station filtering reads it. */
+export function stationCapsOf(raw: WireStation): StationCaps {
   return {
-    stationId,
-    principalId: str(field(raw, "principalId")),
-    harness: str(field(raw, "harness")),
-    isolation:
-      level === null
-        ? null
-        : {
-            level,
-            proof: proofOf(field(iso, "proof")),
-            runtime: str(field(iso, "runtime")),
-          },
+    stationId: raw.stationId,
+    principalId: raw.principalId,
+    harness: raw.harness,
+    isolation: {
+      level: raw.isolation.level,
+      proof: raw.isolation.proof,
+      runtime: raw.isolation.runtime,
+    },
     model:
-      modelId === null
-        ? null
-        : { id: modelId, proof: proofOf(field(model, "proof")) },
-    tools: list(field(raw, "tools"), "id"),
-    credentials: list(field(raw, "credentials"), "name").map((c) => ({
-      name: c.id,
-      proof: c.proof,
-    })),
+      raw.model === null ? null : { id: raw.model.id, proof: raw.model.proof },
+    tools: raw.tools.map((t) => ({ id: t.id, proof: t.proof })),
+    credentials: raw.credentials.map((c) => ({ name: c.name, proof: c.proof })),
   };
 }
 
@@ -101,32 +71,23 @@ export function createAgentpod(
         { method: "GET", authorization: `Bearer ${token}` },
       );
       if (answer.status === 401) deps.tokens.invalidate();
-      const agents = field(okBody("agentpod", answer), "agents");
-      if (!Array.isArray(agents)) {
-        throw new SourceError("agentpod", 200, "malformed_response");
-      }
-      return agents.flatMap((a): RosterEntry[] => {
-        const key = field(a, "key");
-        const stationId = field(a, "stationId");
-        const principalId = field(a, "principalId");
-        if (typeof key !== "string" || typeof stationId !== "string") return [];
-        return [
-          {
-            key,
-            stationId,
-            principalId:
-              typeof principalId === "string" && principalId !== ""
-                ? principalId
-                : null,
-            // Anything but an explicit yes is a no: an unknown station is not a ready one.
-            enabled: field(a, "enabled") === true,
-            ready: field(a, "ready") === true,
-            // Anything but an explicit no is busy: an unknown load is not an idle agent.
-            busy: field(a, "busy") !== false,
-            lastDispatchedAt: isoTime(field(a, "lastDispatchedAt")),
-          },
-        ];
-      });
+      const json = contractBody(
+        "agentpod",
+        "agentpod.capability-catalog",
+        "readBoardRoster",
+        answer,
+      );
+      return json.agents.map(
+        (a): RosterEntry => ({
+          key: a.key,
+          stationId: a.stationId,
+          principalId: a.principalId === "" ? null : a.principalId,
+          enabled: a.enabled,
+          ready: a.ready,
+          busy: a.busy,
+          lastDispatchedAt: isoTime(a.lastDispatchedAt),
+        }),
+      );
     },
 
     async stationCapabilities() {
@@ -136,16 +97,17 @@ export function createAgentpod(
         authorization: `Bearer ${token}`,
       });
       if (answer.status === 401) deps.tokens.invalidate();
+      // A hub without the read is not a refusal: it has no registry to check against.
       if (answer.status === 404) return null;
-      const rows = field(okBody("agentpod", answer), "stations");
-      if (!Array.isArray(rows)) {
-        throw new SourceError("agentpod", 200, "malformed_response");
-      }
+      const json = contractBody(
+        "agentpod",
+        "agentpod.capability-catalog",
+        "listStationCapabilities",
+        answer,
+      );
       const out = new Map<string, StationCaps>();
-      for (const row of rows) {
-        const caps = stationCapsOf(row);
-        if (caps !== null) out.set(caps.stationId, caps);
-      }
+      for (const row of json.stations)
+        out.set(row.stationId, stationCapsOf(row));
       return out;
     },
   };
