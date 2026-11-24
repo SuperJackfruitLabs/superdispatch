@@ -20,8 +20,8 @@
  * - `GET /v1/agents/load` (scope `dispatch:read`): every agent of the workspace with the cards it
  *   holds over every board (`inFlight`), its `capacity` and its latest run heartbeat
  *   (`lastHeartbeatAt`): the load and health of an agent that claims with its own token, read
- *   once a pass when the candidate set is `all`. A SuperPipeline without it answers 404, and no
- *   agent off the roster becomes a candidate.
+ *   once a pass when the candidate set is `all`. SuperPipeline serves it from v0.0.38; one without
+ *   it answers 404, and no agent off the roster becomes a candidate.
  *
  * The reservation verb is SuperPipeline's step 1 of the scheduler plan. Until a SuperPipeline
  * deployment has it, `PUT` answers 404 or 405, the loop records the decision as `not-reserved`,

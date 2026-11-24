@@ -11,6 +11,10 @@
   logged with where it broke the contract, never its values, and the source counts as unread
   for that pass. Before, a malformed row was left out and the rest read; now the whole answer is
   refused.
+- `GET /v1/agents/load` follows treaty's `placement.v1`: `inFlight` and `capacity` are whole
+  numbers, never null, and a capacity of 0 takes nothing (it was read as 1). The route needs
+  SuperPipeline v0.0.38 or later; before then it answers 404 and `SUPERDISPATCH_CANDIDATES=all`
+  places the roster agents only, as `roster` does.
 
 ## v0.0.2 — 2026-11-23
 

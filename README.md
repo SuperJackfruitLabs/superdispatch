@@ -66,8 +66,10 @@ in treaty's catalogue first), and publishing roster suggestions to chat (read th
   by pull. This is the first slice's rule, kept until the operator changes the setting.
 - `all`: those, and every agent of the workspace with no bridge row on the board, once
   SuperPipeline reports its load and health (`GET /v1/agents/load`, read once a pass). An agent
-  with a disabled bridge row stays out either way: a person turned it off on this board. When the
-  read fails, only the roster is placed that pass.
+  with a disabled bridge row stays out either way: a person turned it off on this board. The read
+  needs SuperPipeline v0.0.38 or later. Before then the route answers 404, and the pass places
+  the roster agents only, as with `roster`; the same holds whenever the read fails, or its answer
+  is not treaty's `placement.v1`.
 
 ### Station filters
 
@@ -103,14 +105,15 @@ Both sources give one shape, and the health and idle filters read only that:
 { agentId, inFlight, capacity, healthy, lastSeenAt, source: "roster" | "direct" }
 ```
 
-| Source   | `inFlight`                         | `capacity`          | `healthy`                                | `lastSeenAt`                    |
-| -------- | ---------------------------------- | ------------------- | ---------------------------------------- | ------------------------------- |
-| `roster` | 1 when the station is busy, else 0 | 1                   | the row is enabled and the bridge ready  | when the station last took work |
-| `direct` | cards held over every board        | as reported, else 1 | heard from on a run within the last hour | its latest run heartbeat        |
+| Source   | `inFlight`                         | `capacity`  | `healthy`                                | `lastSeenAt`                    |
+| -------- | ---------------------------------- | ----------- | ---------------------------------------- | ------------------------------- |
+| `roster` | 1 when the station is busy, else 0 | 1           | the row is enabled and the bridge ready  | when the station last took work |
+| `direct` | cards held over every board        | as reported | heard from on a run within the last hour | its latest run heartbeat        |
 
-Idle is `inFlight < capacity`. A direct agent never heard from is not healthy: nothing says it is
-there, so it keeps pulling until it has run once. Every candidate record carries its `source`, and
-the least-recently-used term reads `lastSeenAt` for both.
+Idle is `inFlight < capacity`, so a direct agent with a capacity of 0 is never idle. A direct
+agent never heard from is not healthy: nothing says it is there, so it keeps pulling until it
+has run once. Every candidate record carries its `source`, and the least-recently-used term
+reads `lastSeenAt` for both.
 
 ### The dispatch policy
 
@@ -402,8 +405,9 @@ What it needs of the others:
 - **SuperPipeline**: `GET /v1/boards/:id`, `GET /v1/boards/:id/cards/:cardId/eligibility` and
   `PUT /v1/boards/:id/cards/:cardId/reservation`. A SuperPipeline without the reservation verb
   refuses each hold, and the decision is recorded as `not-reserved`. With
-  `SUPERDISPATCH_CANDIDATES=all`, also `GET /v1/agents/load` (on `dispatch:read`); a
-  SuperPipeline without it places the roster alone.
+  `SUPERDISPATCH_CANDIDATES=all`, also `GET /v1/agents/load` (on `dispatch:read`), which
+  SuperPipeline serves from v0.0.38; a SuperPipeline without it answers 404, and the roster is
+  placed alone.
 - **AgentPod**: `GET /api/bridge/boards/:boardId/roster`, which the hub answers for a service
   listed in its `ROSTER_READERS`; and, for stages that state a placement,
   `GET /api/catalog/stations`, for a service listed in its `CATALOG_READERS`. A hub without the
