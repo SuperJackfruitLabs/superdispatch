@@ -1,6 +1,6 @@
 ---
 title: Status and limits
-description: Where SuperDispatch stands. v0.0.2 places cards in production, and what it does not do yet.
+description: Where SuperDispatch stands. v0.0.4 places cards in production, and what it does not do yet.
 ---
 
 SuperDispatch is early. These docs describe what the current source does; this page is where we
@@ -11,7 +11,7 @@ production.
 
 - **Placement is proven end to end on staging**: filtering, scoring, holds in tiers, fairness
   across boards and the placement window, with decisions settled against what became of each card.
-- **v0.0.2 runs in production, placing cards on the boards the operator has opted in.** A deploy
+- **v0.0.4 runs in production, placing cards on the boards the operator has opted in.** A deploy
   opts no board in by itself; each board is [opted in](/run/opting-a-board-in/) by the operator.
 - **The settings that widen what it does are off**: the candidate set is the roster
   (`SUPERDISPATCH_CANDIDATES=roster`), the dispatch policy is not asked
