@@ -27,7 +27,7 @@ export default defineConfig({
               'tiers: the winner, then runner-ups, then any match by pull. Every decision is recorded ' +
               'with every candidate and the reason for each. Roster suggestions and supply proposals are ' +
               'advice for a person; it never edits a roster or a station. Nothing requires it: without ' +
-              'it, agents claim by pull as before. It is an early, Apache-2.0 Bun service; v0.0.1 runs ' +
+              'it, agents claim by pull as before. It is an early, Apache-2.0 Bun service; v0.0.4 runs ' +
               'in production on the boards the operator has opted in.',
           },
         }),
